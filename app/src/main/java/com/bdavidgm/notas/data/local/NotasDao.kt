@@ -70,4 +70,20 @@ interface NotasDao {
 
     @Query("SELECT * FROM note_images WHERE noteId = :noteId ORDER BY sortOrder ASC, id ASC")
     fun observeImagesForNote(noteId: Long): Flow<List<NoteImageEntity>>
+
+    @Query("SELECT * FROM note_images WHERE noteId = :noteId ORDER BY sortOrder ASC, id ASC")
+    suspend fun getImagesForNoteExport(noteId: Long): List<NoteImageEntity>
+
+    @Query(
+        """
+        SELECT n.id AS noteId, n.title AS title, n.content AS content,
+               n.createdAtMillis AS createdAtMillis, n.updatedAtMillis AS updatedAtMillis,
+               IFNULL(t.id, -1) AS tagId, IFNULL(t.name, '') AS tagName
+        FROM notes n
+        LEFT JOIN note_tags nt ON n.id = nt.noteId
+        LEFT JOIN tags t ON nt.tagId = t.id
+        ORDER BY n.updatedAtMillis DESC, t.name COLLATE NOCASE ASC
+        """,
+    )
+    suspend fun getAllNoteTagRowsForExport(): List<NoteTagJoinRow>
 }

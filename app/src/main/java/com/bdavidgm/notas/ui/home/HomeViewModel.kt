@@ -1,10 +1,13 @@
 package com.bdavidgm.notas.ui.home
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bdavidgm.notas.data.NotasRepository
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,9 +19,19 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+sealed interface BackupFeedback {
+    data object ExportOk : BackupFeedback
+    data object ExportFail : BackupFeedback
+    data class ImportOk(val noteCount: Int) : BackupFeedback
+    data object ImportFail : BackupFeedback
+}
+
 class HomeViewModel(
     private val repository: NotasRepository,
 ) : ViewModel() {
+
+    private val _backupFeedback = Channel<BackupFeedback>(Channel.BUFFERED)
+    val backupFeedback = _backupFeedback.receiveAsFlow()
 
     private val _search = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _search.asStateFlow()
@@ -76,6 +89,34 @@ class HomeViewModel(
         viewModelScope.launch {
             val id = repository.createBlankNote()
             onCreated(id)
+        }
+    }
+
+    fun deleteNote(noteId: Long) {
+        viewModelScope.launch {
+            repository.deleteNote(noteId)
+        }
+    }
+
+    fun performExport(destinationUri: Uri) {
+        viewModelScope.launch {
+            try {
+                repository.exportAllNotesToZip(destinationUri)
+                _backupFeedback.send(BackupFeedback.ExportOk)
+            } catch (_: Exception) {
+                _backupFeedback.send(BackupFeedback.ExportFail)
+            }
+        }
+    }
+
+    fun performImport(sourceUri: Uri) {
+        viewModelScope.launch {
+            try {
+                val count = repository.importNotesFromZip(sourceUri)
+                _backupFeedback.send(BackupFeedback.ImportOk(count))
+            } catch (_: Exception) {
+                _backupFeedback.send(BackupFeedback.ImportFail)
+            }
         }
     }
 
