@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">Notas</string>
+    <string name="fab_new_note">+</string>
+    <string name="search_hint">Buscar en título o contenido…</string>
+    <string name="tag_chip_label">%1$s (%2$d)</string>
+    <string name="untitled_note">(Sin título)</string>
+    <string name="detail_default_title">Nota</string>
+    <string name="cd_back">Volver</string>
+    <string name="action_done">Listo</string>
+    <string name="action_edit">Editar</string>
+    <string name="loading">Cargando…</string>
+    <string name="field_title">Título</string>
+    <string name="field_body">Contenido</string>
+    <string name="empty_body_hint">(Sin contenido)</string>
+    <string name="section_tags">Etiquetas</string>
+    <string name="field_new_tag">Nueva etiqueta</string>
+    <string name="action_add_tag">Añadir</string>
+    <string name="cd_remove_tag">Quitar etiqueta</string>
+    <string name="section_photos">Fotos</string>
+    <string name="action_add_photos">Añadir fotos</string>
+    <string name="cd_remove_photo">Quitar foto</string>
+</resources>
