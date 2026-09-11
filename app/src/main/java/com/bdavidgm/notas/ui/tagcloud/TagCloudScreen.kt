@@ -1,0 +1,193 @@
+package com.bdavidgm.notas.ui.tagcloud
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ElevatedButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bdavidgm.notas.R
+import com.bdavidgm.notas.ui.components.CelesteElevatedButton
+import com.bdavidgm.notas.ui.components.NotasScaffold
+import com.bdavidgm.notas.ui.theme.CelesteClaro
+import com.bdavidgm.notas.ui.theme.CelesteOscuro
+import com.bdavidgm.notas.ui.theme.NegroTexto
+import kotlin.math.max
+import kotlin.math.roundToInt
+
+@Composable
+fun TagCloudScreen(
+    viewModel: TagCloudViewModel,
+    navigationIcon: @Composable () -> Unit,
+    onGoToFilteredNotes: (selectedTagIds: Set<Long>) -> Unit,
+) {
+    val tags by viewModel.tags.collectAsStateWithLifecycle()
+    val selectedIds by viewModel.selectedTagIds.collectAsStateWithLifecycle()
+    val matchingCount by viewModel.matchingNotesCount.collectAsStateWithLifecycle()
+
+    val minCount = tags.minOfOrNull { it.noteCount } ?: 1
+    val maxCount = tags.maxOfOrNull { it.noteCount } ?: 1
+
+    NotasScaffold(
+        title = stringResource(R.string.tag_cloud_title),
+        navigationIcon = navigationIcon,
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
+                if (tags.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.tag_cloud_empty),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                    )
+                } else {
+                    SimpleFlowRow(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp),
+                        horizontalGap = 10.dp,
+                        verticalGap = 10.dp,
+                    ) {
+                        tags.forEach { tag ->
+                            val weight = tagSizeWeight(tag.noteCount, minCount, maxCount)
+                            val fontSp = (13f + 15f * weight).sp
+                            val hPad = (10 + (10 * weight).roundToInt()).dp
+                            val vPad = (6 + (6 * weight).roundToInt()).dp
+                            ElevatedButton(
+                                onClick = { viewModel.toggleTag(tag.tagId) },
+                                contentPadding = PaddingValues(horizontal = hPad, vertical = vPad),
+                                colors = ButtonDefaults.elevatedButtonColors(
+                                    containerColor = if (tag.selected) CelesteOscuro else CelesteClaro,
+                                    contentColor = NegroTexto,
+                                ),
+                            ) {
+                                Text(
+                                    text = tag.name,
+                                    fontSize = fontSp,
+                                    fontWeight = if (tag.selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = NegroTexto,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                tonalElevation = 4.dp,
+                shadowElevation = 4.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (selectedIds.isEmpty()) {
+                            stringResource(R.string.tag_cloud_status_none)
+                        } else {
+                            stringResource(R.string.tag_cloud_status_count, matchingCount)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp),
+                    )
+                    CelesteElevatedButton(
+                        onClick = { onGoToFilteredNotes(selectedIds) },
+                        enabled = selectedIds.isNotEmpty(),
+                    ) {
+                        Text(stringResource(R.string.tag_cloud_go))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Flujo de chips sin FlowRow (evita NoSuchMethodError con BOM Compose actual). */
+@Composable
+private fun SimpleFlowRow(
+    modifier: Modifier = Modifier,
+    horizontalGap: Dp = 8.dp,
+    verticalGap: Dp = 8.dp,
+    content: @Composable () -> Unit,
+) {
+    Layout(
+        content = content,
+        modifier = modifier,
+    ) { measurables, constraints ->
+        val hGapPx = horizontalGap.roundToPx()
+        val vGapPx = verticalGap.roundToPx()
+        val maxWidth = constraints.maxWidth
+
+        val placeables = measurables.map { measurable ->
+            measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        }
+
+        var x = 0
+        var y = 0
+        var rowHeight = 0
+        var totalHeight = 0
+        val positions = ArrayList<Pair<Int, Int>>(placeables.size)
+
+        placeables.forEach { placeable ->
+            if (x > 0 && x + placeable.width > maxWidth) {
+                x = 0
+                y += rowHeight + vGapPx
+                rowHeight = 0
+            }
+            positions.add(x to y)
+            rowHeight = max(rowHeight, placeable.height)
+            x += placeable.width + hGapPx
+            totalHeight = max(totalHeight, y + rowHeight)
+        }
+
+        val width = maxWidth.coerceAtLeast(constraints.minWidth)
+        val height = totalHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(width, height) {
+            placeables.forEachIndexed { index, placeable ->
+                val (px, py) = positions[index]
+                placeable.placeRelative(px, py)
+            }
+        }
+    }
+}
+
+private fun tagSizeWeight(count: Int, minCount: Int, maxCount: Int): Float {
+    if (maxCount <= minCount) return 0.55f
+    return ((count - minCount).toFloat() / (maxCount - minCount).toFloat()).coerceIn(0f, 1f)
+}

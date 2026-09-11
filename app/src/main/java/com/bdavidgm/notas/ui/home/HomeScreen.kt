@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -67,6 +68,7 @@ import java.util.Locale
 fun HomeScreen(
     viewModel: HomeViewModel,
     onOpenNote: (Long) -> Unit,
+    onOpenDrawer: () -> Unit,
 ) {
     val context = LocalContext.current
     val search = viewModel.searchQuery.collectAsStateWithLifecycle().value
@@ -138,6 +140,15 @@ fun HomeScreen(
     NotasScaffold(
         title = stringResource(R.string.app_name),
         snackbarHostState = snackbarHostState,
+        navigationIcon = {
+            IconButton(onClick = onOpenDrawer) {
+                Icon(
+                    imageVector = Icons.Filled.Menu,
+                    contentDescription = stringResource(R.string.cd_open_drawer),
+                    tint = NegroTexto,
+                )
+            }
+        },
         actions = {
             Box {
                 IconButton(onClick = { overflowOpen = true }) {

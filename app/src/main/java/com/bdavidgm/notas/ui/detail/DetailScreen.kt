@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -21,22 +23,33 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -48,7 +61,10 @@ import com.bdavidgm.notas.ui.components.NotasScaffold
 import com.bdavidgm.notas.ui.components.TopBarTextButton
 import com.bdavidgm.notas.ui.theme.Celeste
 import com.bdavidgm.notas.ui.theme.NegroTexto
+import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.noteTimestampLabel
+import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
+import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -64,8 +80,54 @@ fun DetailScreen(
     val draftContent by viewModel.draftContent.collectAsStateWithLifecycle()
     val newTagInput by viewModel.newTagInput.collectAsStateWithLifecycle()
     val images by viewModel.images.collectAsStateWithLifecycle()
+    val contentMode by viewModel.contentDisplayMode.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var contentField by remember { mutableStateOf(TextFieldValue(draftContent)) }
+    var overflowOpen by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var pendingExportFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
+
+    LaunchedEffect(draftContent) {
+        if (contentField.text != draftContent) {
+            contentField = TextFieldValue(
+                text = draftContent,
+                selection = TextRange(draftContent.length),
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.exportFeedback.collect { feedback ->
+            val message = when (feedback) {
+                NoteExportFeedback.Ok -> context.getString(R.string.snackbar_note_export_ok)
+                NoteExportFeedback.Fail -> context.getString(R.string.snackbar_note_export_error)
+            }
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    val exportTxtLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(NoteExportFormat.TXT.mimeType),
+    ) { uri ->
+        val format = pendingExportFormat
+        pendingExportFormat = null
+        if (uri != null && format == NoteExportFormat.TXT) {
+            viewModel.exportNote(uri, NoteExportFormat.TXT)
+        }
+    }
+
+    val exportMdLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(NoteExportFormat.MD.mimeType),
+    ) { uri ->
+        val format = pendingExportFormat
+        pendingExportFormat = null
+        if (uri != null && format == NoteExportFormat.MD) {
+            viewModel.exportNote(uri, NoteExportFormat.MD)
+        }
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
@@ -99,8 +161,48 @@ fun DetailScreen(
     val titleBar = nwt?.note?.title?.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.detail_default_title)
 
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text(stringResource(R.string.dialog_export_note_title)) },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            showExportDialog = false
+                            pendingExportFormat = NoteExportFormat.TXT
+                            exportTxtLauncher.launch(
+                                suggestedNoteExportFileName(draftTitle, NoteExportFormat.TXT),
+                            )
+                        },
+                    ) {
+                        Text(stringResource(R.string.action_export_txt))
+                    }
+                    TextButton(
+                        onClick = {
+                            showExportDialog = false
+                            pendingExportFormat = NoteExportFormat.MD
+                            exportMdLauncher.launch(
+                                suggestedNoteExportFileName(draftTitle, NoteExportFormat.MD),
+                            )
+                        },
+                    ) {
+                        Text(stringResource(R.string.action_export_md))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     NotasScaffold(
         title = titleBar,
+        snackbarHostState = snackbarHostState,
         navigationIcon = {
             IconButton(
                 onClick = {
@@ -122,6 +224,27 @@ fun DetailScreen(
             }
         },
         actions = {
+            Box {
+                IconButton(onClick = { overflowOpen = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = stringResource(R.string.cd_overflow_menu),
+                        tint = NegroTexto,
+                    )
+                }
+                DropdownMenu(
+                    expanded = overflowOpen,
+                    onDismissRequest = { overflowOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_export_note)) },
+                        onClick = {
+                            overflowOpen = false
+                            showExportDialog = true
+                        },
+                    )
+                }
+            }
             if (isEditing) {
                 TopBarTextButton(
                     label = stringResource(R.string.action_done),
@@ -163,6 +286,13 @@ fun DetailScreen(
 
             Spacer(Modifier.height(12.dp))
 
+            ContentModeSelector(
+                mode = contentMode,
+                onModeChange = viewModel::setContentDisplayMode,
+            )
+
+            Spacer(Modifier.height(12.dp))
+
             if (isEditing) {
                 OutlinedTextField(
                     value = draftTitle,
@@ -177,29 +307,83 @@ fun DetailScreen(
                     ),
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = draftContent,
-                    onValueChange = viewModel::updateDraftContent,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp),
-                    label = { Text(stringResource(R.string.field_body)) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Celeste,
-                        unfocusedBorderColor = Celeste,
-                        cursorColor = NegroTexto,
-                    ),
+
+                MarkdownFormatToolbar(
+                    value = contentField,
+                    onValueChange = { updated ->
+                        contentField = updated
+                        viewModel.updateDraftContent(updated.text)
+                    },
                 )
+                Spacer(Modifier.height(8.dp))
+
+                when (contentMode) {
+                    ContentDisplayMode.TXT -> {
+                        OutlinedTextField(
+                            value = contentField,
+                            onValueChange = { updated ->
+                                contentField = updated
+                                viewModel.updateDraftContent(updated.text)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp),
+                            label = { Text(stringResource(R.string.field_body)) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Celeste,
+                                unfocusedBorderColor = Celeste,
+                                cursorColor = NegroTexto,
+                            ),
+                        )
+                    }
+                    ContentDisplayMode.MD -> {
+                        NoteMarkdownBody(
+                            markdown = contentField.text,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp)
+                                .border(1.dp, Celeste, RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = contentField,
+                            onValueChange = { updated ->
+                                contentField = updated
+                                viewModel.updateDraftContent(updated.text)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(140.dp),
+                            label = { Text(stringResource(R.string.markdown_edit_hint)) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Celeste,
+                                unfocusedBorderColor = Celeste,
+                                cursorColor = NegroTexto,
+                            ),
+                        )
+                    }
+                }
             } else {
                 Text(
                     text = draftTitle.ifBlank { stringResource(R.string.untitled_note) },
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    text = draftContent.ifBlank { stringResource(R.string.empty_body_hint) },
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+                when (contentMode) {
+                    ContentDisplayMode.TXT -> {
+                        Text(
+                            text = draftContent.ifBlank { stringResource(R.string.empty_body_hint) },
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                    ContentDisplayMode.MD -> {
+                        NoteMarkdownBody(
+                            markdown = draftContent,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(20.dp))
@@ -302,6 +486,26 @@ fun DetailScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NoteMarkdownBody(
+    markdown: String,
+    modifier: Modifier = Modifier,
+) {
+    if (markdown.isBlank()) {
+        Text(
+            text = stringResource(R.string.empty_body_hint),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+            modifier = modifier,
+        )
+    } else {
+        Markdown(
+            content = markdown,
+            modifier = modifier,
+        )
     }
 }
 

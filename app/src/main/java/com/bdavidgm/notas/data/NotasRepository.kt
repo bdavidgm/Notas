@@ -122,6 +122,19 @@ class NotasRepository(
     }
 
     /**
+     * Escribe el texto de una nota exportada en el URI elegido por el usuario (.txt / .md).
+     */
+    suspend fun writeTextExport(destinationUri: Uri, text: String) {
+        withContext(Dispatchers.IO) {
+            val out = appContext.contentResolver.openOutputStream(destinationUri)
+                ?: throw IOException("No se pudo escribir en el destino elegido.")
+            out.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
+                writer.write(text)
+            }
+        }
+    }
+
+    /**
      * Exporta todas las notas (texto, etiquetas e imágenes) a un ZIP con [manifest.json].
      */
     suspend fun exportAllNotesToZip(destinationUri: Uri) {

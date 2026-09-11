@@ -1,19 +1,29 @@
 package com.bdavidgm.notas.ui.detail
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bdavidgm.notas.data.NotasRepository
-import com.bdavidgm.notas.data.local.NoteImageEntity
 import com.bdavidgm.notas.data.NoteWithTags
+import com.bdavidgm.notas.data.local.NoteImageEntity
+import com.bdavidgm.notas.ui.util.NoteExportFormat
+import com.bdavidgm.notas.ui.util.buildNoteExportDocument
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+sealed interface NoteExportFeedback {
+    data object Ok : NoteExportFeedback
+    data object Fail : NoteExportFeedback
+}
 
 class DetailViewModel(
     private val noteId: Long,
@@ -31,6 +41,12 @@ class DetailViewModel(
 
     private val _newTagInput = MutableStateFlow("")
     val newTagInput: StateFlow<String> = _newTagInput.asStateFlow()
+
+    private val _contentDisplayMode = MutableStateFlow(ContentDisplayMode.MD)
+    val contentDisplayMode: StateFlow<ContentDisplayMode> = _contentDisplayMode.asStateFlow()
+
+    private val _exportFeedback = Channel<NoteExportFeedback>(Channel.BUFFERED)
+    val exportFeedback = _exportFeedback.receiveAsFlow()
 
     val noteWithTags = repository.observeNoteWithTags(noteId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -89,6 +105,10 @@ class DetailViewModel(
         _draftContent.value = v
     }
 
+    fun setContentDisplayMode(mode: ContentDisplayMode) {
+        _contentDisplayMode.value = mode
+    }
+
     fun updateNewTagInput(v: String) {
         _newTagInput.value = v
     }
@@ -123,6 +143,34 @@ class DetailViewModel(
     fun deleteImage(entity: NoteImageEntity) {
         viewModelScope.launch {
             repository.deleteImage(entity.id, entity.storedPath)
+        }
+    }
+
+    fun exportNote(destinationUri: Uri, format: NoteExportFormat) {
+        viewModelScope.launch {
+            try {
+                if (_isEditing.value) {
+                    repository.persistDraftIfChanged(
+                        noteId = noteId,
+                        title = _draftTitle.value,
+                        content = _draftContent.value,
+                    )
+                }
+                val nwt = noteWithTags.value
+                    ?: repository.observeNoteWithTags(noteId).filterNotNull().first()
+                val text = buildNoteExportDocument(
+                    title = _draftTitle.value,
+                    createdAtMillis = nwt.note.createdAtMillis,
+                    updatedAtMillis = nwt.note.updatedAtMillis,
+                    content = _draftContent.value,
+                    tagNames = nwt.tags.map { it.name },
+                    format = format,
+                )
+                repository.writeTextExport(destinationUri, text)
+                _exportFeedback.send(NoteExportFeedback.Ok)
+            } catch (_: Exception) {
+                _exportFeedback.send(NoteExportFeedback.Fail)
+            }
         }
     }
 

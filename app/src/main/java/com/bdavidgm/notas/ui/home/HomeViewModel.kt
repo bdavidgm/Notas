@@ -85,6 +85,10 @@ class HomeViewModel(
         _selectedTagIds.value = cur
     }
 
+    fun setSelectedTagIds(tagIds: Set<Long>) {
+        _selectedTagIds.value = tagIds
+    }
+
     fun createNote(onCreated: (Long) -> Unit) {
         viewModelScope.launch {
             val id = repository.createBlankNote()
