@@ -17,6 +17,7 @@ import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -30,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import android.net.Uri
 import com.bdavidgm.notas.NotasApplication
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.ui.detail.DetailScreen
@@ -47,7 +49,10 @@ private const val ROUTE_HOME = "home"
 private const val ROUTE_TAG_CLOUD = "tagCloud"
 
 @Composable
-fun NotasNavHost() {
+fun NotasNavHost(
+    pendingOpenDocumentUri: Uri? = null,
+    onOpenDocumentConsumed: (Uri) -> Unit = {},
+) {
     val navController = rememberNavController()
     val repository = (LocalContext.current.applicationContext as NotasApplication).repository
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -63,6 +68,16 @@ fun NotasNavHost() {
         viewModelStoreOwner = activity,
         factory = HomeViewModel.factory(repository),
     )
+
+    LaunchedEffect(pendingOpenDocumentUri) {
+        val uri = pendingOpenDocumentUri ?: return@LaunchedEffect
+        homeViewModel.openDocumentAsNote(uri) { noteId ->
+            navController.navigate("detail/$noteId") {
+                launchSingleTop = true
+            }
+        }
+        onOpenDocumentConsumed(uri)
+    }
 
     fun openDrawer() {
         scope.launch { drawerState.open() }

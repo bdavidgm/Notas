@@ -89,6 +89,16 @@ fun HomeScreen(
         if (uri != null) viewModel.performImport(uri)
     }
 
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.openDocumentAsNote(uri) { noteId ->
+                onOpenNote(noteId)
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.backupFeedback.collect { feedback ->
             val msg = when (feedback) {
@@ -99,6 +109,10 @@ fun HomeScreen(
                     feedback.noteCount,
                 )
                 BackupFeedback.ImportFail -> context.getString(R.string.snackbar_import_error)
+                is BackupFeedback.OpenDocumentOk ->
+                    context.getString(R.string.snackbar_open_document_ok)
+                BackupFeedback.OpenDocumentFail ->
+                    context.getString(R.string.snackbar_open_document_error)
             }
             snackbarHostState.showSnackbar(msg)
         }
@@ -162,6 +176,19 @@ fun HomeScreen(
                     expanded = overflowOpen,
                     onDismissRequest = { overflowOpen = false },
                 ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_open_document)) },
+                        onClick = {
+                            overflowOpen = false
+                            openDocumentLauncher.launch(
+                                arrayOf(
+                                    "text/plain",
+                                    "text/markdown",
+                                    "text/x-markdown",
+                                ),
+                            )
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.action_export)) },
                         onClick = {

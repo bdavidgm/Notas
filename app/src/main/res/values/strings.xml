@@ -66,11 +66,14 @@
     <string name="dialog_export_note_title">Exportar nota</string>
     <string name="snackbar_note_export_ok">Nota exportada.</string>
     <string name="snackbar_note_export_error">No se pudo exportar la nota.</string>
-    <string name="action_import">Importar</string>
+    <string name="action_import">Importar copia</string>
+    <string name="action_open_document">Abrir .txt / .md</string>
     <string name="snackbar_export_ok">Copia de seguridad exportada.</string>
     <string name="snackbar_export_error">No se pudo exportar. Inténtalo de nuevo.</string>
     <string name="snackbar_import_ok">Se importaron %1$d notas.</string>
     <string name="snackbar_import_error">No se pudo importar el archivo.</string>
+    <string name="snackbar_open_document_ok">Documento añadido a tus notas.</string>
+    <string name="snackbar_open_document_error">No se pudo abrir el documento.</string>
     <string name="cd_delete_note">Eliminar nota</string>
     <string name="dialog_delete_note_title">¿Eliminar nota?</string>
     <string name="dialog_delete_note_message">Se borrará «%1$s» y sus fotos. Esta acción no se puede deshacer.</string>

@@ -24,6 +24,8 @@ sealed interface BackupFeedback {
     data object ExportFail : BackupFeedback
     data class ImportOk(val noteCount: Int) : BackupFeedback
     data object ImportFail : BackupFeedback
+    data class OpenDocumentOk(val noteId: Long) : BackupFeedback
+    data object OpenDocumentFail : BackupFeedback
 }
 
 class HomeViewModel(
@@ -120,6 +122,18 @@ class HomeViewModel(
                 _backupFeedback.send(BackupFeedback.ImportOk(count))
             } catch (_: Exception) {
                 _backupFeedback.send(BackupFeedback.ImportFail)
+            }
+        }
+    }
+
+    fun openDocumentAsNote(sourceUri: Uri, onOpened: (Long) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val noteId = repository.importNoteFromTextFile(sourceUri)
+                _backupFeedback.send(BackupFeedback.OpenDocumentOk(noteId))
+                onOpened(noteId)
+            } catch (_: Exception) {
+                _backupFeedback.send(BackupFeedback.OpenDocumentFail)
             }
         }
     }

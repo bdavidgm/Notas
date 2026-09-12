@@ -26,6 +26,7 @@ import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import com.bdavidgm.notas.ui.util.parsePlainNoteDocument
 
 class NotasRepository(
     private val dao: NotasDao,
@@ -50,6 +51,48 @@ class NotasRepository(
                 updatedAtMillis = now,
             ),
         )
+    }
+
+    /**
+     * Lee un .txt/.md desde [uri], crea una nota en la base de datos y devuelve su id.
+     */
+    suspend fun importNoteFromTextFile(uri: Uri): Long = withContext(Dispatchers.IO) {
+        val text = appContext.contentResolver.openInputStream(uri)?.use { input ->
+            input.bufferedReader(StandardCharsets.UTF_8).readText()
+        } ?: throw IOException("No se pudo leer el archivo.")
+
+        val displayName = queryDisplayName(uri)
+            ?.substringBeforeLast('.')
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+        val parsed = parsePlainNoteDocument(text, displayName)
+        val now = System.currentTimeMillis()
+        val created = parsed.createdAtMillis ?: now
+        val updated = parsed.updatedAtMillis ?: now
+        val noteId = dao.insertNote(
+            NoteEntity(
+                title = parsed.title.trimEnd(),
+                content = parsed.content,
+                createdAtMillis = created,
+                updatedAtMillis = updated,
+            ),
+        )
+        for (tagName in parsed.tagNames) {
+            addTagToNote(noteId, tagName)
+        }
+        noteId
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        val projection = arrayOf(android.provider.OpenableColumns.DISPLAY_NAME)
+        appContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) return cursor.getString(index)
+            }
+        }
+        return uri.lastPathSegment
     }
 
     suspend fun updateNote(note: NoteEntity) {
