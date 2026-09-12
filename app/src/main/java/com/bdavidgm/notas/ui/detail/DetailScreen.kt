@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -46,8 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -61,7 +64,9 @@ import com.bdavidgm.notas.ui.components.NotasScaffold
 import com.bdavidgm.notas.ui.components.TopBarTextButton
 import com.bdavidgm.notas.ui.theme.Celeste
 import com.bdavidgm.notas.ui.theme.NegroTexto
+import com.bdavidgm.notas.ui.util.NoteCopyOptions
 import com.bdavidgm.notas.ui.util.NoteExportFormat
+import com.bdavidgm.notas.ui.util.buildNoteCopyText
 import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
 import com.mikepenz.markdown.m3.Markdown
@@ -83,11 +88,14 @@ fun DetailScreen(
     val contentMode by viewModel.contentDisplayMode.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var contentField by remember { mutableStateOf(TextFieldValue(draftContent)) }
     var overflowOpen by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showCopyDialog by remember { mutableStateOf(false) }
+    var copyOptions by remember { mutableStateOf(NoteCopyOptions()) }
     var pendingExportFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
 
     LaunchedEffect(draftContent) {
@@ -200,6 +208,74 @@ fun DetailScreen(
         )
     }
 
+    if (showCopyDialog) {
+        AlertDialog(
+            onDismissRequest = { showCopyDialog = false },
+            title = { Text(stringResource(R.string.dialog_copy_note_title)) },
+            text = {
+                Column {
+                    CopyOptionRow(
+                        label = stringResource(R.string.copy_option_title),
+                        checked = copyOptions.includeTitle,
+                        onCheckedChange = { copyOptions = copyOptions.copy(includeTitle = it) },
+                    )
+                    CopyOptionRow(
+                        label = stringResource(R.string.copy_option_body),
+                        checked = copyOptions.includeBody,
+                        onCheckedChange = { copyOptions = copyOptions.copy(includeBody = it) },
+                    )
+                    CopyOptionRow(
+                        label = stringResource(R.string.copy_option_signature),
+                        checked = copyOptions.includeSignature,
+                        onCheckedChange = { copyOptions = copyOptions.copy(includeSignature = it) },
+                    )
+                    CopyOptionRow(
+                        label = stringResource(R.string.copy_option_tags),
+                        checked = copyOptions.includeTags,
+                        onCheckedChange = { copyOptions = copyOptions.copy(includeTags = it) },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (!copyOptions.hasAny) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(R.string.snackbar_note_copy_empty),
+                                )
+                            }
+                            return@TextButton
+                        }
+                        val note = nwt?.note
+                        val text = buildNoteCopyText(
+                            title = draftTitle,
+                            createdAtMillis = note?.createdAtMillis ?: System.currentTimeMillis(),
+                            updatedAtMillis = note?.updatedAtMillis ?: System.currentTimeMillis(),
+                            content = draftContent,
+                            tagNames = nwt?.tags.orEmpty().map { it.name },
+                            options = copyOptions,
+                        )
+                        clipboardManager.setText(AnnotatedString(text))
+                        showCopyDialog = false
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.snackbar_note_copy_ok),
+                            )
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.action_copy))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCopyDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     NotasScaffold(
         title = titleBar,
         snackbarHostState = snackbarHostState,
@@ -236,6 +312,14 @@ fun DetailScreen(
                     expanded = overflowOpen,
                     onDismissRequest = { overflowOpen = false },
                 ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.action_copy_note)) },
+                        onClick = {
+                            overflowOpen = false
+                            copyOptions = NoteCopyOptions()
+                            showCopyDialog = true
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.action_export_note)) },
                         onClick = {
@@ -486,6 +570,30 @@ fun DetailScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CopyOptionRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 4.dp),
+        )
     }
 }
 

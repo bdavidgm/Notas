@@ -50,3 +50,47 @@ fun suggestedNoteExportFileName(title: String, format: NoteExportFormat): String
         .ifBlank { "nota" }
     return "$base.${format.extension}"
 }
+
+data class NoteCopyOptions(
+    val includeTitle: Boolean = true,
+    val includeBody: Boolean = true,
+    val includeSignature: Boolean = true,
+    val includeTags: Boolean = true,
+) {
+    val hasAny: Boolean
+        get() = includeTitle || includeBody || includeSignature || includeTags
+}
+
+fun buildNoteCopyText(
+    title: String,
+    createdAtMillis: Long,
+    updatedAtMillis: Long,
+    content: String,
+    tagNames: List<String>,
+    options: NoteCopyOptions,
+): String {
+    if (!options.hasAny) return ""
+
+    val parts = mutableListOf<String>()
+    if (options.includeTitle) {
+        parts += title.ifBlank { "Sin título" }
+    }
+    if (options.includeSignature) {
+        parts += noteTimestampLabel(createdAtMillis, updatedAtMillis)
+    }
+    if (options.includeBody) {
+        parts += content.trimEnd()
+    }
+    if (options.includeTags) {
+        val tagsLine = tagNames
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(" ") { tag ->
+                if (tag.startsWith("#")) tag else "#$tag"
+            }
+        if (tagsLine.isNotEmpty()) {
+            parts += tagsLine
+        }
+    }
+    return parts.joinToString("\n\n").trim() + "\n"
+}

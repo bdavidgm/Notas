@@ -52,6 +52,15 @@
     <string name="cd_overflow_menu">Más opciones</string>
     <string name="action_export">Exportar</string>
     <string name="action_export_note">Exportar nota</string>
+    <string name="action_copy_note">Copiar nota</string>
+    <string name="dialog_copy_note_title">Copiar nota</string>
+    <string name="copy_option_title">Título</string>
+    <string name="copy_option_body">Texto</string>
+    <string name="copy_option_signature">Firma</string>
+    <string name="copy_option_tags">Etiquetas</string>
+    <string name="action_copy">Copiar</string>
+    <string name="snackbar_note_copy_ok">Nota copiada al portapapeles.</string>
+    <string name="snackbar_note_copy_empty">Elige al menos un elemento para copiar.</string>
     <string name="action_export_txt">Exportar como .txt</string>
     <string name="action_export_md">Exportar como .md</string>
     <string name="dialog_export_note_title">Exportar nota</string>
