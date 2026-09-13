@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewResponder
+import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -54,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -85,7 +89,9 @@ import com.mohamedrejeb.richeditor.model.rememberRichTextState
 import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichText
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.io.File
@@ -422,9 +428,15 @@ private fun DetailNoteBody(
     modifier: Modifier = Modifier,
 ) {
     val removeTag = remember(viewModel) { viewModel::removeTag }
+    val scrollState = rememberScrollState()
 
     Column(
-        modifier = modifier.padding(16.dp),
+        modifier = modifier
+            .padding(16.dp)
+            // Ignora bring-into-view del TextField: con rich text multi-párrafo el
+            // mapeo de offsets empuja el scroll al final del documento al hacer clic.
+            .ignoreChildBringIntoView()
+            .verticalScroll(scrollState),
     ) {
         Text(
             text = noteTimestampLabel(note.createdAtMillis, note.updatedAtMillis),
@@ -441,46 +453,36 @@ private fun DetailNoteBody(
         if (isEditing) {
             DraftTitleField(viewModel)
             Spacer(Modifier.height(8.dp))
-            // Fuera del verticalScroll del padre: si no, al tocar el cursor
-            // el bring-into-view desplaza todo el documento al final.
-            DraftContentEditor(
-                viewModel = viewModel,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            )
-            Spacer(Modifier.height(16.dp))
-            DetailMetaSections(
-                tags = tags,
-                isEditing = true,
-                onRemoveTag = removeTag,
-                viewModel = viewModel,
-                onAddPhotos = onAddPhotos,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 220.dp)
-                    .verticalScroll(rememberScrollState()),
-            )
+            DraftContentEditor(viewModel = viewModel)
         } else {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                ReadOnlyNoteBody(viewModel)
-                Spacer(Modifier.height(20.dp))
-                DetailMetaSections(
-                    tags = tags,
-                    isEditing = false,
-                    onRemoveTag = removeTag,
-                    viewModel = viewModel,
-                    onAddPhotos = onAddPhotos,
-                )
-            }
+            ReadOnlyNoteBody(viewModel)
         }
+
+        Spacer(Modifier.height(20.dp))
+        DetailMetaSections(
+            tags = tags,
+            isEditing = isEditing,
+            onRemoveTag = removeTag,
+            viewModel = viewModel,
+            onAddPhotos = onAddPhotos,
+        )
     }
 }
+
+/**
+ * Evita que hijos (p. ej. BasicTextField) pidan scroll al padre al enfocar/clic.
+ * Sin esto, el editor rich-text suele llevar el viewport al final del texto.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.ignoreChildBringIntoView(): Modifier =
+    bringIntoViewResponder(
+        object : BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: Rect): Rect = localRect
+            override suspend fun bringChildIntoView(localRect: () -> Rect?) {
+                // no-op
+            }
+        },
+    )
 
 @Composable
 private fun DetailMetaSections(
@@ -543,10 +545,7 @@ private fun DraftTitleField(viewModel: DetailViewModel) {
 }
 
 @Composable
-private fun DraftContentEditor(
-    viewModel: DetailViewModel,
-    modifier: Modifier = Modifier,
-) {
+private fun DraftContentEditor(viewModel: DetailViewModel) {
     val contentMode by viewModel.contentDisplayMode.collectAsStateWithLifecycle()
     val remoteContent by viewModel.draftContent.collectAsStateWithLifecycle()
 
@@ -555,14 +554,12 @@ private fun DraftContentEditor(
             PlainTextDraftEditor(
                 remoteContent = remoteContent,
                 onContentChange = viewModel::updateDraftContent,
-                modifier = modifier,
             )
         }
         ContentDisplayMode.MD -> {
             RichMarkdownDraftEditor(
                 remoteContent = remoteContent,
                 onMarkdownChange = viewModel::updateDraftContent,
-                modifier = modifier,
             )
         }
     }
@@ -572,11 +569,10 @@ private fun DraftContentEditor(
 private fun PlainTextDraftEditor(
     remoteContent: String,
     onContentChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     var localField by remember { mutableStateOf<TextFieldValue?>(null) }
     val contentField = localField
-        ?: TextFieldValue(remoteContent, TextRange(remoteContent.length))
+        ?: TextFieldValue(remoteContent, TextRange.Zero)
 
     OutlinedTextField(
         value = contentField,
@@ -584,7 +580,9 @@ private fun PlainTextDraftEditor(
             localField = updated
             onContentChange(updated.text)
         },
-        modifier = modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 160.dp),
         label = { Text(stringResource(R.string.field_body)) },
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Celeste,
@@ -594,12 +592,11 @@ private fun PlainTextDraftEditor(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
 private fun RichMarkdownDraftEditor(
     remoteContent: String,
     onMarkdownChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val richTextState = rememberRichTextState()
     var userEdited by remember { mutableStateOf(false) }
@@ -608,12 +605,16 @@ private fun RichMarkdownDraftEditor(
     LaunchedEffect(remoteContent) {
         if (!userEdited) {
             richTextState.setMarkdown(remoteContent)
+            // setMarkdown deja la selección al final; forzar inicio para no
+            // scrollear al final al abrir la edición.
+            richTextState.selection = TextRange.Zero
             lastPushed = richTextState.toMarkdown()
         }
     }
 
     LaunchedEffect(richTextState) {
         snapshotFlow { richTextState.toMarkdown() }
+            .debounce(300)
             .distinctUntilChanged()
             .collect { markdown ->
                 if (markdown == lastPushed) return@collect
@@ -623,22 +624,22 @@ private fun RichMarkdownDraftEditor(
             }
     }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        RichMarkdownFormatToolbar(state = richTextState)
-        Spacer(Modifier.height(8.dp))
-        OutlinedRichTextEditor(
-            state = richTextState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            label = { Text(stringResource(R.string.field_body)) },
-            colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
-                focusedBorderColor = Celeste,
-                unfocusedBorderColor = Celeste,
-                cursorColor = NegroTexto,
-            ),
-        )
-    }
+    RichMarkdownFormatToolbar(state = richTextState)
+    Spacer(Modifier.height(8.dp))
+    // Sin altura fija ni weight: el campo crece con el texto y no tiene scroll
+    // interno (ese scroll era el que saltaba al final al hacer clic).
+    OutlinedRichTextEditor(
+        state = richTextState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 160.dp),
+        label = { Text(stringResource(R.string.field_body)) },
+        colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
+            focusedBorderColor = Celeste,
+            unfocusedBorderColor = Celeste,
+            cursorColor = NegroTexto,
+        ),
+    )
 }
 
 @Composable
