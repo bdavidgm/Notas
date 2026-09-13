@@ -48,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,9 +91,8 @@ import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichText
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
@@ -115,8 +115,6 @@ fun DetailScreen(
     var showManageTags by remember { mutableStateOf(false) }
     var copyOptions by remember { mutableStateOf(NoteCopyOptions()) }
     var pendingExportFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
-
-    DraftPersistEffect(viewModel)
 
     LaunchedEffect(Unit) {
         viewModel.exportFeedback.collect { feedback ->
@@ -405,19 +403,6 @@ fun DetailScreen(
     }
 }
 
-/** Solo observa drafts para el debounce de persistencia; no pinta UI. */
-@Composable
-private fun DraftPersistEffect(viewModel: DetailViewModel) {
-    val isEditing by viewModel.isEditing.collectAsStateWithLifecycle()
-    val draftTitle by viewModel.draftTitle.collectAsStateWithLifecycle()
-    val draftContent by viewModel.draftContent.collectAsStateWithLifecycle()
-    LaunchedEffect(draftTitle, draftContent, isEditing) {
-        if (!isEditing) return@LaunchedEffect
-        delay(750)
-        viewModel.persistDraftDebounced()
-    }
-}
-
 @Composable
 private fun DetailNoteBody(
     viewModel: DetailViewModel,
@@ -546,39 +531,44 @@ private fun DraftTitleField(viewModel: DetailViewModel) {
 
 @Composable
 private fun DraftContentEditor(viewModel: DetailViewModel) {
+    // Ojo: aquí NO se colecta draftContent. Si se leyera en composición, cada
+    // pulsación recompondría el editor completo (y su toolbar).
     val contentMode by viewModel.contentDisplayMode.collectAsStateWithLifecycle()
-    val remoteContent by viewModel.draftContent.collectAsStateWithLifecycle()
 
     when (contentMode) {
-        ContentDisplayMode.TXT -> {
-            PlainTextDraftEditor(
-                remoteContent = remoteContent,
-                onContentChange = viewModel::updateDraftContent,
-            )
-        }
-        ContentDisplayMode.MD -> {
-            RichMarkdownDraftEditor(
-                remoteContent = remoteContent,
-                onMarkdownChange = viewModel::updateDraftContent,
-            )
-        }
+        ContentDisplayMode.TXT -> PlainTextDraftEditor(viewModel)
+        ContentDisplayMode.MD -> RichMarkdownDraftEditor(viewModel)
     }
 }
 
 @Composable
-private fun PlainTextDraftEditor(
-    remoteContent: String,
-    onContentChange: (String) -> Unit,
-) {
-    var localField by remember { mutableStateOf<TextFieldValue?>(null) }
-    val contentField = localField
-        ?: TextFieldValue(remoteContent, TextRange.Zero)
+private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
+    var userEdited by remember { mutableStateOf(false) }
+    var localField by remember {
+        mutableStateOf(TextFieldValue(viewModel.draftContent.value, TextRange.Zero))
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.draftContent.collect { remote ->
+            if (userEdited || remote == localField.text) return@collect
+            localField = TextFieldValue(remote, TextRange.Zero)
+        }
+    }
+
+    DisposableEffect(viewModel) {
+        viewModel.setBodySnapshotProvider { localField.text }
+        onDispose {
+            viewModel.updateDraftContent(localField.text)
+            viewModel.setBodySnapshotProvider(null)
+        }
+    }
 
     OutlinedTextField(
-        value = contentField,
+        value = localField,
         onValueChange = { updated ->
+            userEdited = true
             localField = updated
-            onContentChange(updated.text)
+            viewModel.updateDraftContent(updated.text)
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -594,40 +584,51 @@ private fun PlainTextDraftEditor(
 
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
-private fun RichMarkdownDraftEditor(
-    remoteContent: String,
-    onMarkdownChange: (String) -> Unit,
-) {
+private fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
     val richTextState = rememberRichTextState()
     var userEdited by remember { mutableStateOf(false) }
     var lastPushed by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(remoteContent) {
-        if (!userEdited) {
-            richTextState.setMarkdown(remoteContent)
-            // setMarkdown deja la selección al final; forzar inicio para no
-            // scrollear al final al abrir la edición.
+    LaunchedEffect(viewModel, richTextState) {
+        viewModel.draftContent.collect { remote ->
+            if (userEdited || remote == lastPushed) return@collect
+            richTextState.setMarkdown(remote)
             richTextState.selection = TextRange.Zero
             lastPushed = richTextState.toMarkdown()
         }
     }
 
-    LaunchedEffect(richTextState) {
-        snapshotFlow { richTextState.toMarkdown() }
-            .debounce(300)
-            .distinctUntilChanged()
-            .collect { markdown ->
+    DisposableEffect(viewModel, richTextState) {
+        viewModel.setBodySnapshotProvider { richTextState.toMarkdown() }
+        onDispose {
+            val markdown = richTextState.toMarkdown()
+            viewModel.updateDraftContent(markdown)
+            viewModel.setBodySnapshotProvider(null)
+        }
+    }
+
+    // Clave de rendimiento: observar una señal barata (el AnnotatedString ya
+    // construido por el editor) y serializar a Markdown UNA vez pasado el
+    // debounce. Observar `toMarkdown()` dentro del snapshotFlow recorría y
+    // serializaba el documento entero en cada pulsación y en cada cambio de
+    // selección, en el hilo principal.
+    LaunchedEffect(viewModel, richTextState) {
+        snapshotFlow { richTextState.annotatedString }
+            .drop(1)
+            .debounce(400)
+            .collect {
+                // Aún no se ha cargado el contenido: no pisar el borrador.
+                if (lastPushed == null) return@collect
+                val markdown = richTextState.toMarkdown()
                 if (markdown == lastPushed) return@collect
                 userEdited = true
                 lastPushed = markdown
-                onMarkdownChange(markdown)
+                viewModel.updateDraftContent(markdown)
             }
     }
 
     RichMarkdownFormatToolbar(state = richTextState)
     Spacer(Modifier.height(8.dp))
-    // Sin altura fija ni weight: el campo crece con el texto y no tiene scroll
-    // interno (ese scroll era el que saltaba al final al hacer clic).
     OutlinedRichTextEditor(
         state = richTextState,
         modifier = Modifier

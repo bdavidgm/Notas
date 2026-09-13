@@ -9,11 +9,15 @@ import com.bdavidgm.notas.data.NoteWithTags
 import com.bdavidgm.notas.data.local.NoteImageEntity
 import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.buildNoteExportDocument
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -25,6 +29,7 @@ sealed interface NoteExportFeedback {
     data object Fail : NoteExportFeedback
 }
 
+@OptIn(FlowPreview::class)
 class DetailViewModel(
     private val noteId: Long,
     private val repository: NotasRepository,
@@ -62,6 +67,20 @@ class DetailViewModel(
             }
             _draftTitle.value = first.note.title
             _draftContent.value = first.note.content
+        }
+        // Autoguardado fuera de la composición: la UI no vuelve a leer los drafts
+        // para programar el debounce en cada pulsación.
+        viewModelScope.launch {
+            combine(_draftTitle, _draftContent, ::Pair)
+                .debounce(750)
+                .collectLatest { (title, content) ->
+                    if (!_isEditing.value) return@collectLatest
+                    repository.persistDraftIfChanged(
+                        noteId = noteId,
+                        title = title,
+                        content = content,
+                    )
+                }
         }
     }
 
@@ -105,16 +124,22 @@ class DetailViewModel(
         _draftContent.value = v
     }
 
-    fun setContentDisplayMode(mode: ContentDisplayMode) {
-        _contentDisplayMode.value = mode
+    /**
+     * Proveedor del cuerpo “vivo” del editor actual (MD/TXT).
+     * Se consulta al cambiar de modo para no perder texto aún no volcado al StateFlow.
+     */
+    private var bodySnapshotProvider: (() -> String)? = null
+
+    fun setBodySnapshotProvider(provider: (() -> String)?) {
+        bodySnapshotProvider = provider
     }
 
-    suspend fun persistDraftDebounced() {
-        repository.persistDraftIfChanged(
-            noteId = noteId,
-            title = _draftTitle.value,
-            content = _draftContent.value,
-        )
+    fun setContentDisplayMode(mode: ContentDisplayMode) {
+        if (mode == _contentDisplayMode.value) return
+        bodySnapshotProvider?.invoke()?.let { snapshot ->
+            _draftContent.value = snapshot
+        }
+        _contentDisplayMode.value = mode
     }
 
     fun addTag(rawName: String) {
