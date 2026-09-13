@@ -50,6 +50,9 @@ interface NotasDao {
     @Query("DELETE FROM notes WHERE id = :id")
     suspend fun deleteNoteById(id: Long): Int
 
+    @Query("SELECT * FROM tags ORDER BY name COLLATE NOCASE ASC")
+    fun observeAllTags(): Flow<List<TagEntity>>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTag(tag: TagEntity): Long
 

@@ -41,6 +41,8 @@ class NotasRepository(
 
     fun observeImages(noteId: Long) = dao.observeImagesForNote(noteId)
 
+    fun observeAllTags(): Flow<List<TagEntity>> = dao.observeAllTags()
+
     suspend fun createBlankNote(): Long {
         val now = System.currentTimeMillis()
         return dao.insertNote(

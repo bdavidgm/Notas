@@ -39,9 +39,6 @@ class DetailViewModel(
     private val _draftContent = MutableStateFlow("")
     val draftContent: StateFlow<String> = _draftContent.asStateFlow()
 
-    private val _newTagInput = MutableStateFlow("")
-    val newTagInput: StateFlow<String> = _newTagInput.asStateFlow()
-
     private val _contentDisplayMode = MutableStateFlow(ContentDisplayMode.MD)
     val contentDisplayMode: StateFlow<ContentDisplayMode> = _contentDisplayMode.asStateFlow()
 
@@ -52,6 +49,9 @@ class DetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val images = repository.observeImages(noteId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val allTags = repository.observeAllTags()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
@@ -109,10 +109,6 @@ class DetailViewModel(
         _contentDisplayMode.value = mode
     }
 
-    fun updateNewTagInput(v: String) {
-        _newTagInput.value = v
-    }
-
     suspend fun persistDraftDebounced() {
         repository.persistDraftIfChanged(
             noteId = noteId,
@@ -121,12 +117,21 @@ class DetailViewModel(
         )
     }
 
-    fun addTagFromInput() {
-        val raw = _newTagInput.value
-        if (raw.isBlank()) return
+    fun addTag(rawName: String) {
+        val name = rawName.trim()
+        if (name.isEmpty()) return
         viewModelScope.launch {
-            repository.addTagToNote(noteId, raw)
-            _newTagInput.value = ""
+            repository.addTagToNote(noteId, name)
+        }
+    }
+
+    fun addTags(rawNames: Collection<String>) {
+        val names = rawNames.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (names.isEmpty()) return
+        viewModelScope.launch {
+            for (name in names) {
+                repository.addTagToNote(noteId, name)
+            }
         }
     }
 

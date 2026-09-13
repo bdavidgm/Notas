@@ -71,10 +71,6 @@ fun HomeScreen(
     onOpenDrawer: () -> Unit,
 ) {
     val context = LocalContext.current
-    val search = viewModel.searchQuery.collectAsStateWithLifecycle().value
-    val notes = viewModel.displayedNotes.collectAsStateWithLifecycle().value
-    val tagChips = viewModel.tagChips.collectAsStateWithLifecycle().value
-
     val snackbarHostState = remember { SnackbarHostState() }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -93,9 +89,7 @@ fun HomeScreen(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            viewModel.openDocumentAsNote(uri) { noteId ->
-                onOpenNote(noteId)
-            }
+            viewModel.openDocumentAsNote(uri, onOpenNote)
         }
     }
 
@@ -120,6 +114,13 @@ fun HomeScreen(
 
     var overflowOpen by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<Pair<Long, String>?>(null) }
+
+    val onRequestDelete = remember {
+        { noteId: Long, titleForDialog: String ->
+            pendingDelete = noteId to titleForDialog
+        }
+    }
+    val onOpenNoteStable = remember(onOpenNote) { onOpenNote }
 
     pendingDelete?.let { (noteId, titleForDialog) ->
         AlertDialog(
@@ -213,7 +214,7 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            CelesteFab(onClick = { viewModel.createNote(onOpenNote) }) {
+            CelesteFab(onClick = { viewModel.createNote(onOpenNoteStable) }) {
                 Text(
                     text = stringResource(R.string.fab_new_note),
                     style = MaterialTheme.typography.titleLarge,
@@ -227,60 +228,96 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            OutlinedTextField(
-                value = search,
-                onValueChange = viewModel::onSearchChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                singleLine = true,
-                placeholder = { Text(stringResource(R.string.search_hint)) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Celeste,
-                    unfocusedBorderColor = Celeste,
-                    cursorColor = NegroTexto,
-                    focusedLabelColor = NegroTexto,
-                ),
+            HomeSearchField(viewModel)
+            HomeTagChipsRow(viewModel)
+            HomeNotesList(
+                viewModel = viewModel,
+                onOpenNote = onOpenNoteStable,
+                onRequestDelete = onRequestDelete,
             )
+        }
+    }
+}
 
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(tagChips, key = { it.tagId }) { chip ->
-                    ElevatedButton(
-                        onClick = { viewModel.toggleTagFilter(chip.tagId) },
-                        colors = ButtonDefaults.elevatedButtonColors(
-                            containerColor = if (chip.selected) CelesteOscuro else CelesteClaro,
-                            contentColor = NegroTexto,
-                        ),
-                    ) {
-                        val label = stringResource(R.string.tag_chip_label, chip.name, chip.count)
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
+@Composable
+private fun HomeSearchField(viewModel: HomeViewModel) {
+    val search by viewModel.searchQuery.collectAsStateWithLifecycle()
+    OutlinedTextField(
+        value = search,
+        onValueChange = viewModel::onSearchChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        singleLine = true,
+        placeholder = { Text(stringResource(R.string.search_hint)) },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Celeste,
+            unfocusedBorderColor = Celeste,
+            cursorColor = NegroTexto,
+            focusedLabelColor = NegroTexto,
+        ),
+    )
+}
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(notes, key = { it.note.id }) { item ->
-                    NoteListItem(
-                        item = item,
-                        onClick = { onOpenNote(item.note.id) },
-                        onRequestDelete = { noteId, titleForDialog ->
-                            pendingDelete = noteId to titleForDialog
-                        },
-                    )
-                }
-            }
+@Composable
+private fun HomeTagChipsRow(viewModel: HomeViewModel) {
+    val tagChips by viewModel.tagChips.collectAsStateWithLifecycle()
+    val onToggle = remember(viewModel) { viewModel::toggleTagFilter }
+
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(tagChips, key = { it.tagId }) { chip ->
+            HomeTagChip(
+                chip = chip,
+                onToggle = onToggle,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeTagChip(
+    chip: HomeViewModel.TagChipUi,
+    onToggle: (Long) -> Unit,
+) {
+    ElevatedButton(
+        onClick = { onToggle(chip.tagId) },
+        colors = ButtonDefaults.elevatedButtonColors(
+            containerColor = if (chip.selected) CelesteOscuro else CelesteClaro,
+            contentColor = NegroTexto,
+        ),
+    ) {
+        val label = stringResource(R.string.tag_chip_label, chip.name, chip.count)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun HomeNotesList(
+    viewModel: HomeViewModel,
+    onOpenNote: (Long) -> Unit,
+    onRequestDelete: (noteId: Long, titleForDialog: String) -> Unit,
+) {
+    val notes by viewModel.displayedNotes.collectAsStateWithLifecycle()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(notes, key = { it.note.id }) { item ->
+            NoteListItem(
+                item = item,
+                onOpenNote = onOpenNote,
+                onRequestDelete = onRequestDelete,
+            )
         }
     }
 }
@@ -288,11 +325,12 @@ fun HomeScreen(
 @Composable
 private fun NoteListItem(
     item: NoteWithTags,
-    onClick: () -> Unit,
+    onOpenNote: (Long) -> Unit,
     onRequestDelete: (noteId: Long, titleForDialog: String) -> Unit,
 ) {
     val titleText = item.note.title.ifBlank { stringResource(R.string.untitled_note) }
     val time = noteTimestampLabel(item.note.createdAtMillis, item.note.updatedAtMillis)
+    val noteId = item.note.id
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -308,7 +346,7 @@ private fun NoteListItem(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clickable(onClick = onClick)
+                    .clickable(onClick = { onOpenNote(noteId) })
                     .padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             ) {
                 Text(
@@ -350,9 +388,7 @@ private fun NoteListItem(
                 )
             }
             IconButton(
-                onClick = {
-                    onRequestDelete(item.note.id, titleText)
-                },
+                onClick = { onRequestDelete(noteId, titleText) },
                 modifier = Modifier.widthIn(min = 48.dp),
             ) {
                 Icon(

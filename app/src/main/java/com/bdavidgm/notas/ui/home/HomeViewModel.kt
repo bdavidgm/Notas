@@ -7,14 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.bdavidgm.notas.data.NotasRepository
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -42,6 +43,7 @@ class HomeViewModel(
     val selectedTagIds: StateFlow<Set<Long>> = _selectedTagIds.asStateFlow()
 
     private val notesMatchingSearch = _search
+        .debounce { query -> if (query.isEmpty()) 0L else 300L }
         .map { NotasRepository.likePattern(it) }
         .distinctUntilChanged()
         .flatMapLatest { repository.observeNotesMatchingSearch(it) }

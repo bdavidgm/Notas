@@ -16,6 +16,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
@@ -40,13 +41,6 @@ fun TagCloudScreen(
     navigationIcon: @Composable () -> Unit,
     onGoToFilteredNotes: (selectedTagIds: Set<Long>) -> Unit,
 ) {
-    val tags by viewModel.tags.collectAsStateWithLifecycle()
-    val selectedIds by viewModel.selectedTagIds.collectAsStateWithLifecycle()
-    val matchingCount by viewModel.matchingNotesCount.collectAsStateWithLifecycle()
-
-    val minCount = tags.minOfOrNull { it.noteCount } ?: 1
-    val maxCount = tags.maxOfOrNull { it.noteCount } ?: 1
-
     NotasScaffold(
         title = stringResource(R.string.tag_cloud_title),
         navigationIcon = navigationIcon,
@@ -56,83 +50,125 @@ fun TagCloudScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            Box(
+            TagCloudChipsPane(
+                viewModel = viewModel,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
+            )
+            TagCloudFooter(
+                viewModel = viewModel,
+                onGoToFilteredNotes = onGoToFilteredNotes,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TagCloudChipsPane(
+    viewModel: TagCloudViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val tags by viewModel.tags.collectAsStateWithLifecycle()
+    val onToggle = remember(viewModel) { viewModel::toggleTag }
+    val minCount = tags.minOfOrNull { it.noteCount } ?: 1
+    val maxCount = tags.maxOfOrNull { it.noteCount } ?: 1
+
+    Box(modifier = modifier) {
+        if (tags.isEmpty()) {
+            Text(
+                text = stringResource(R.string.tag_cloud_empty),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+            )
+        } else {
+            SimpleFlowRow(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                horizontalGap = 10.dp,
+                verticalGap = 10.dp,
             ) {
-                if (tags.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.tag_cloud_empty),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp),
+                tags.forEach { tag ->
+                    TagCloudChip(
+                        tag = tag,
+                        minCount = minCount,
+                        maxCount = maxCount,
+                        onToggle = onToggle,
                     )
-                } else {
-                    SimpleFlowRow(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp),
-                        horizontalGap = 10.dp,
-                        verticalGap = 10.dp,
-                    ) {
-                        tags.forEach { tag ->
-                            val weight = tagSizeWeight(tag.noteCount, minCount, maxCount)
-                            val fontSp = (13f + 15f * weight).sp
-                            val hPad = (10 + (10 * weight).roundToInt()).dp
-                            val vPad = (6 + (6 * weight).roundToInt()).dp
-                            ElevatedButton(
-                                onClick = { viewModel.toggleTag(tag.tagId) },
-                                contentPadding = PaddingValues(horizontal = hPad, vertical = vPad),
-                                colors = ButtonDefaults.elevatedButtonColors(
-                                    containerColor = if (tag.selected) CelesteOscuro else CelesteClaro,
-                                    contentColor = NegroTexto,
-                                ),
-                            ) {
-                                Text(
-                                    text = tag.name,
-                                    fontSize = fontSp,
-                                    fontWeight = if (tag.selected) FontWeight.Bold else FontWeight.Medium,
-                                    color = NegroTexto,
-                                )
-                            }
-                        }
-                    }
                 }
             }
+        }
+    }
+}
 
-            Surface(
-                tonalElevation = 4.dp,
-                shadowElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth(),
+@Composable
+private fun TagCloudChip(
+    tag: TagCloudViewModel.TagCloudItem,
+    minCount: Int,
+    maxCount: Int,
+    onToggle: (Long) -> Unit,
+) {
+    val weight = tagSizeWeight(tag.noteCount, minCount, maxCount)
+    val fontSp = (13f + 15f * weight).sp
+    val hPad = (10 + (10 * weight).roundToInt()).dp
+    val vPad = (6 + (6 * weight).roundToInt()).dp
+    ElevatedButton(
+        onClick = { onToggle(tag.tagId) },
+        contentPadding = PaddingValues(horizontal = hPad, vertical = vPad),
+        colors = ButtonDefaults.elevatedButtonColors(
+            containerColor = if (tag.selected) CelesteOscuro else CelesteClaro,
+            contentColor = NegroTexto,
+        ),
+    ) {
+        Text(
+            text = tag.name,
+            fontSize = fontSp,
+            fontWeight = if (tag.selected) FontWeight.Bold else FontWeight.Medium,
+            color = NegroTexto,
+        )
+    }
+}
+
+@Composable
+private fun TagCloudFooter(
+    viewModel: TagCloudViewModel,
+    onGoToFilteredNotes: (selectedTagIds: Set<Long>) -> Unit,
+) {
+    val selectedIds by viewModel.selectedTagIds.collectAsStateWithLifecycle()
+    val matchingCount by viewModel.matchingNotesCount.collectAsStateWithLifecycle()
+
+    Surface(
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (selectedIds.isEmpty()) {
+                    stringResource(R.string.tag_cloud_status_none)
+                } else {
+                    stringResource(R.string.tag_cloud_status_count, matchingCount)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp),
+            )
+            CelesteElevatedButton(
+                onClick = { onGoToFilteredNotes(selectedIds) },
+                enabled = selectedIds.isNotEmpty(),
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (selectedIds.isEmpty()) {
-                            stringResource(R.string.tag_cloud_status_none)
-                        } else {
-                            stringResource(R.string.tag_cloud_status_count, matchingCount)
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 12.dp),
-                    )
-                    CelesteElevatedButton(
-                        onClick = { onGoToFilteredNotes(selectedIds) },
-                        enabled = selectedIds.isNotEmpty(),
-                    ) {
-                        Text(stringResource(R.string.tag_cloud_go))
-                    }
-                }
+                Text(stringResource(R.string.tag_cloud_go))
             }
         }
     }
