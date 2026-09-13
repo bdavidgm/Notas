@@ -988,34 +988,18 @@ private fun ManageTagsQueryField(
     Spacer(Modifier.height(20.dp))
 }
 
+/** Etiqueta ya asociada: casilla marcada; desmarcarla la quita de la nota. */
 @Composable
 private fun ManageNoteTagRow(
     tag: TagEntity,
     onRemoveNoteTag: (Long) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = tag.name,
-            style = MaterialTheme.typography.bodyLarge,
-            color = NegroTexto,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        IconButton(onClick = { onRemoveNoteTag(tag.id) }) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = stringResource(R.string.cd_remove_tag),
-                tint = NegroTexto,
-            )
-        }
-    }
-    HorizontalDivider()
+    ManageTagCheckRow(
+        name = tag.name,
+        checked = true,
+        onClick = { onRemoveNoteTag(tag.id) },
+        contentDescription = stringResource(R.string.cd_remove_tag),
+    )
 }
 
 @Composable
@@ -1024,10 +1008,24 @@ private fun ManageAvailableTagRow(
     checked: Boolean,
     onToggle: (String) -> Unit,
 ) {
+    ManageTagCheckRow(
+        name = tag.name,
+        checked = checked,
+        onClick = { onToggle(tag.name) },
+    )
+}
+
+@Composable
+private fun ManageTagCheckRow(
+    name: String,
+    checked: Boolean,
+    onClick: () -> Unit,
+    contentDescription: String? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggle(tag.name) }
+            .clickable(onClickLabel = contentDescription, onClick = onClick)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1036,10 +1034,12 @@ private fun ManageAvailableTagRow(
             onCheckedChange = null,
         )
         Text(
-            text = tag.name,
+            text = name,
             style = MaterialTheme.typography.bodyLarge,
             color = NegroTexto,
             modifier = Modifier.padding(start = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
     HorizontalDivider()
