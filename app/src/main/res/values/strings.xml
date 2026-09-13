@@ -41,7 +41,7 @@
     <string name="markdown_placeholder_strike">tachado</string>
     <string name="markdown_placeholder_code">código</string>
     <string name="markdown_placeholder_link">texto del enlace</string>
-    <string name="markdown_edit_hint">Escribe Markdown aquí…</string>
+    <string name="markdown_edit_hint">Contenido con formato…</string>
     <string name="section_tags">Etiquetas</string>
     <string name="field_new_tag">Escribir etiqueta</string>
     <string name="action_add_tag">Añadir</string>

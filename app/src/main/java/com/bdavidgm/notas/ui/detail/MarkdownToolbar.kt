@@ -13,7 +13,6 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.Link
@@ -36,11 +35,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.ui.theme.Celeste
 import com.bdavidgm.notas.ui.theme.NegroTexto
+import com.mohamedrejeb.richeditor.model.RichTextState
 
 @Composable
 fun ContentModeSelector(
@@ -65,16 +69,12 @@ fun ContentModeSelector(
 }
 
 @Composable
-fun MarkdownFormatToolbar(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
+fun RichMarkdownFormatToolbar(
+    state: RichTextState,
     modifier: Modifier = Modifier,
 ) {
     var showLinkDialog by remember { mutableStateOf(false) }
-    val placeholderBold = stringResource(R.string.markdown_placeholder_bold)
-    val placeholderItalic = stringResource(R.string.markdown_placeholder_italic)
-    val placeholderStrike = stringResource(R.string.markdown_placeholder_strike)
-    val placeholderCode = stringResource(R.string.markdown_placeholder_code)
+    val placeholderLink = stringResource(R.string.markdown_placeholder_link)
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -92,49 +92,46 @@ fun MarkdownFormatToolbar(
                 imageVector = Icons.Filled.FormatBold,
                 contentDescription = stringResource(R.string.cd_format_bold),
                 onClick = {
-                    onValueChange(value.wrapSelection("**", placeholder = placeholderBold))
+                    state.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
                 },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatItalic,
                 contentDescription = stringResource(R.string.cd_format_italic),
                 onClick = {
-                    onValueChange(value.wrapSelection("*", placeholder = placeholderItalic))
+                    state.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
                 },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatStrikethrough,
                 contentDescription = stringResource(R.string.cd_format_strikethrough),
                 onClick = {
-                    onValueChange(value.wrapSelection("~~", placeholder = placeholderStrike))
+                    state.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
                 },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatSize,
                 contentDescription = stringResource(R.string.cd_format_heading),
-                onClick = { onValueChange(value.applyLinePrefix("## ")) },
+                onClick = {
+                    state.toggleSpanStyle(
+                        SpanStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold),
+                    )
+                },
             )
             FormatIconButton(
                 imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
                 contentDescription = stringResource(R.string.cd_format_bullet),
-                onClick = { onValueChange(value.applyLinePrefix("- ")) },
+                onClick = { state.toggleUnorderedList() },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatListNumbered,
                 contentDescription = stringResource(R.string.cd_format_numbered),
-                onClick = { onValueChange(value.applyLinePrefix("1. ")) },
-            )
-            FormatIconButton(
-                imageVector = Icons.Filled.FormatQuote,
-                contentDescription = stringResource(R.string.cd_format_quote),
-                onClick = { onValueChange(value.applyLinePrefix("> ")) },
+                onClick = { state.toggleOrderedList() },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.Code,
                 contentDescription = stringResource(R.string.cd_format_code),
-                onClick = {
-                    onValueChange(value.wrapSelection("`", placeholder = placeholderCode))
-                },
+                onClick = { state.toggleCodeSpan() },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.Link,
@@ -145,11 +142,18 @@ fun MarkdownFormatToolbar(
     }
 
     if (showLinkDialog) {
+        val selected = state.annotatedString.text
+            .substring(state.selection.min, state.selection.max)
         LinkInsertDialog(
-            initialText = value.text.substring(value.selection.min, value.selection.max),
+            initialText = selected.ifBlank { placeholderLink },
             onDismiss = { showLinkDialog = false },
             onConfirm = { linkText, url ->
-                onValueChange(value.insertLink(linkText, url))
+                val href = url.ifBlank { "https://" }
+                if (state.selection.collapsed) {
+                    state.addLink(text = linkText.ifBlank { placeholderLink }, url = href)
+                } else {
+                    state.addLinkToSelection(url = href)
+                }
                 showLinkDialog = false
             },
         )

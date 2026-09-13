@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +33,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -80,8 +81,12 @@ import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.buildNoteCopyText
 import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
-import com.mikepenz.markdown.m3.Markdown
+import com.mohamedrejeb.richeditor.model.rememberRichTextState
+import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
+import com.mohamedrejeb.richeditor.ui.material3.RichText
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
@@ -419,9 +424,7 @@ private fun DetailNoteBody(
     val removeTag = remember(viewModel) { viewModel::removeTag }
 
     Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier = modifier.padding(16.dp),
     ) {
         Text(
             text = noteTimestampLabel(note.createdAtMillis, note.updatedAtMillis),
@@ -438,31 +441,73 @@ private fun DetailNoteBody(
         if (isEditing) {
             DraftTitleField(viewModel)
             Spacer(Modifier.height(8.dp))
-            DraftContentEditor(viewModel)
+            // Fuera del verticalScroll del padre: si no, al tocar el cursor
+            // el bring-into-view desplaza todo el documento al final.
+            DraftContentEditor(
+                viewModel = viewModel,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            )
+            Spacer(Modifier.height(16.dp))
+            DetailMetaSections(
+                tags = tags,
+                isEditing = true,
+                onRemoveTag = removeTag,
+                viewModel = viewModel,
+                onAddPhotos = onAddPhotos,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp)
+                    .verticalScroll(rememberScrollState()),
+            )
         } else {
-            ReadOnlyNoteBody(viewModel)
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                ReadOnlyNoteBody(viewModel)
+                Spacer(Modifier.height(20.dp))
+                DetailMetaSections(
+                    tags = tags,
+                    isEditing = false,
+                    onRemoveTag = removeTag,
+                    viewModel = viewModel,
+                    onAddPhotos = onAddPhotos,
+                )
+            }
         }
+    }
+}
 
-        Spacer(Modifier.height(20.dp))
+@Composable
+private fun DetailMetaSections(
+    tags: List<TagEntity>,
+    isEditing: Boolean,
+    onRemoveTag: (Long) -> Unit,
+    viewModel: DetailViewModel,
+    onAddPhotos: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
         Text(
             text = stringResource(R.string.section_tags),
             style = MaterialTheme.typography.titleSmall,
         )
         Spacer(Modifier.height(8.dp))
-
         NoteTagsRow(
             tags = tags,
             isEditing = isEditing,
-            onRemoveTag = removeTag,
+            onRemoveTag = onRemoveTag,
         )
-
         Spacer(Modifier.height(20.dp))
         Text(
             text = stringResource(R.string.section_photos),
             style = MaterialTheme.typography.titleSmall,
         )
         Spacer(Modifier.height(8.dp))
-
         NotePhotosSection(
             viewModel = viewModel,
             isEditing = isEditing,
@@ -498,82 +543,102 @@ private fun DraftTitleField(viewModel: DetailViewModel) {
 }
 
 @Composable
-private fun DraftContentEditor(viewModel: DetailViewModel) {
+private fun DraftContentEditor(
+    viewModel: DetailViewModel,
+    modifier: Modifier = Modifier,
+) {
     val contentMode by viewModel.contentDisplayMode.collectAsStateWithLifecycle()
-    // Mientras el usuario no ha tocado el campo, seguimos el draft del VM (p. ej. carga inicial).
-    // En cuanto escribe, el TextFieldValue local es la fuente de verdad: no reinyectar el
-    // StateFlow remoto (eso recreaba TextFieldValue con selection al final y saltaba el cursor).
     val remoteContent by viewModel.draftContent.collectAsStateWithLifecycle()
-    var localField by remember { mutableStateOf<TextFieldValue?>(null) }
-    val contentField = localField
-        ?: TextFieldValue(remoteContent, TextRange(remoteContent.length))
-
-    fun onBodyChange(updated: TextFieldValue) {
-        localField = updated
-        viewModel.updateDraftContent(updated.text)
-    }
-
-    MarkdownFormatToolbar(
-        value = contentField,
-        onValueChange = ::onBodyChange,
-    )
-    Spacer(Modifier.height(8.dp))
 
     when (contentMode) {
         ContentDisplayMode.TXT -> {
-            OutlinedTextField(
-                value = contentField,
-                onValueChange = ::onBodyChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                label = { Text(stringResource(R.string.field_body)) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Celeste,
-                    unfocusedBorderColor = Celeste,
-                    cursorColor = NegroTexto,
-                ),
+            PlainTextDraftEditor(
+                remoteContent = remoteContent,
+                onContentChange = viewModel::updateDraftContent,
+                modifier = modifier,
             )
         }
         ContentDisplayMode.MD -> {
-            DebouncedMarkdownPreview(
-                text = contentField.text,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 120.dp)
-                    .border(1.dp, Celeste, RoundedCornerShape(12.dp))
-                    .padding(12.dp),
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = contentField,
-                onValueChange = ::onBodyChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(140.dp),
-                label = { Text(stringResource(R.string.markdown_edit_hint)) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Celeste,
-                    unfocusedBorderColor = Celeste,
-                    cursorColor = NegroTexto,
-                ),
+            RichMarkdownDraftEditor(
+                remoteContent = remoteContent,
+                onMarkdownChange = viewModel::updateDraftContent,
+                modifier = modifier,
             )
         }
     }
 }
 
 @Composable
-private fun DebouncedMarkdownPreview(
-    text: String,
+private fun PlainTextDraftEditor(
+    remoteContent: String,
+    onContentChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    debounceMs: Long = 400L,
 ) {
-    var preview by remember { mutableStateOf(text) }
-    LaunchedEffect(text) {
-        delay(debounceMs)
-        preview = text
+    var localField by remember { mutableStateOf<TextFieldValue?>(null) }
+    val contentField = localField
+        ?: TextFieldValue(remoteContent, TextRange(remoteContent.length))
+
+    OutlinedTextField(
+        value = contentField,
+        onValueChange = { updated ->
+            localField = updated
+            onContentChange(updated.text)
+        },
+        modifier = modifier.fillMaxWidth(),
+        label = { Text(stringResource(R.string.field_body)) },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Celeste,
+            unfocusedBorderColor = Celeste,
+            cursorColor = NegroTexto,
+        ),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RichMarkdownDraftEditor(
+    remoteContent: String,
+    onMarkdownChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val richTextState = rememberRichTextState()
+    var userEdited by remember { mutableStateOf(false) }
+    var lastPushed by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(remoteContent) {
+        if (!userEdited) {
+            richTextState.setMarkdown(remoteContent)
+            lastPushed = richTextState.toMarkdown()
+        }
     }
-    NoteMarkdownBody(markdown = preview, modifier = modifier)
+
+    LaunchedEffect(richTextState) {
+        snapshotFlow { richTextState.toMarkdown() }
+            .distinctUntilChanged()
+            .collect { markdown ->
+                if (markdown == lastPushed) return@collect
+                userEdited = true
+                lastPushed = markdown
+                onMarkdownChange(markdown)
+            }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        RichMarkdownFormatToolbar(state = richTextState)
+        Spacer(Modifier.height(8.dp))
+        OutlinedRichTextEditor(
+            state = richTextState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            label = { Text(stringResource(R.string.field_body)) },
+            colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
+                focusedBorderColor = Celeste,
+                unfocusedBorderColor = Celeste,
+                cursorColor = NegroTexto,
+            ),
+        )
+    }
 }
 
 @Composable
@@ -595,11 +660,29 @@ private fun ReadOnlyNoteBody(viewModel: DetailViewModel) {
             )
         }
         ContentDisplayMode.MD -> {
-            NoteMarkdownBody(
-                markdown = draftContent,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            ReadOnlyRichMarkdown(markdown = draftContent)
         }
+    }
+}
+
+@Composable
+private fun ReadOnlyRichMarkdown(markdown: String) {
+    val richTextState = rememberRichTextState()
+    LaunchedEffect(markdown) {
+        richTextState.setMarkdown(markdown)
+    }
+    if (markdown.isBlank()) {
+        Text(
+            text = stringResource(R.string.empty_body_hint),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+        )
+    } else {
+        RichText(
+            state = richTextState,
+            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.bodyLarge,
+        )
     }
 }
 
@@ -1065,26 +1148,6 @@ private fun CopyOptionRow(
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 4.dp),
-        )
-    }
-}
-
-@Composable
-private fun NoteMarkdownBody(
-    markdown: String,
-    modifier: Modifier = Modifier,
-) {
-    if (markdown.isBlank()) {
-        Text(
-            text = stringResource(R.string.empty_body_hint),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-            modifier = modifier,
-        )
-    } else {
-        Markdown(
-            content = markdown,
-            modifier = modifier,
         )
     }
 }
