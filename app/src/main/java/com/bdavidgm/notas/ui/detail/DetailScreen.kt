@@ -779,14 +779,48 @@ private fun ManageTagsScreen(
     val allTags by viewModel.allTags.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
     var pendingTagNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    // null = sin diálogo; id null = solo pendiente de teclado (aún no en BD).
+    var tagPendingDelete by remember { mutableStateOf<Pair<Long?, String>?>(null) }
 
     val onRemoveNoteTag = remember(viewModel) { viewModel::removeTag }
+    val onDeleteTag = remember(viewModel) { viewModel::deleteTag }
 
     fun applyPending() {
         viewModel.addTags(pendingTagNames)
         pendingTagNames = emptyList()
         query = ""
         onDismiss()
+    }
+
+    tagPendingDelete?.let { (tagId, tagName) ->
+        AlertDialog(
+            onDismissRequest = { tagPendingDelete = null },
+            title = { Text(stringResource(R.string.dialog_delete_tag_title)) },
+            text = {
+                Text(stringResource(R.string.dialog_delete_tag_message, tagName))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (tagId != null) {
+                            onDeleteTag(tagId)
+                        }
+                        val key = tagName.lowercase(Locale.getDefault())
+                        pendingTagNames = pendingTagNames.filterNot {
+                            it.lowercase(Locale.getDefault()) == key
+                        }
+                        tagPendingDelete = null
+                    },
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { tagPendingDelete = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 
     NotasScaffold(
@@ -816,6 +850,7 @@ private fun ManageTagsScreen(
             onQueryChange = { query = it },
             onPendingChange = { pendingTagNames = it },
             onRemoveNoteTag = onRemoveNoteTag,
+            onRequestDeleteTag = { id, name -> tagPendingDelete = id to name },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -833,6 +868,7 @@ private fun ManageTagsList(
     onQueryChange: (String) -> Unit,
     onPendingChange: (List<String>) -> Unit,
     onRemoveNoteTag: (Long) -> Unit,
+    onRequestDeleteTag: (id: Long?, name: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val noteTagIds = remember(noteTags) { noteTags.map { it.id }.toSet() }
@@ -911,6 +947,7 @@ private fun ManageTagsList(
             ManageNoteTagRow(
                 tag = tag,
                 onRemoveNoteTag = onRemoveNoteTag,
+                onRequestDeleteTag = onRequestDeleteTag,
             )
         }
 
@@ -919,9 +956,14 @@ private fun ManageTagsList(
             pendingTagNames,
             key = { "pending-${it.lowercase(Locale.getDefault())}" },
         ) { name ->
+            val existingId = allTags.firstOrNull {
+                it.name.lowercase(Locale.getDefault()) == name.lowercase(Locale.getDefault())
+            }?.id
             ManagePendingTagRow(
                 name = name,
+                tagId = existingId,
                 onRemovePending = togglePendingName,
+                onRequestDeleteTag = onRequestDeleteTag,
             )
         }
 
@@ -956,6 +998,7 @@ private fun ManageTagsList(
                 ManageAvailableTagRow(
                     tag = tag,
                     onToggle = togglePendingName,
+                    onRequestDeleteTag = onRequestDeleteTag,
                 )
             }
         }
@@ -1001,11 +1044,13 @@ private fun ManageTagsQueryField(
 private fun ManageNoteTagRow(
     tag: TagEntity,
     onRemoveNoteTag: (Long) -> Unit,
+    onRequestDeleteTag: (id: Long?, name: String) -> Unit,
 ) {
     ManageTagCheckRow(
         name = tag.name,
         checked = true,
         onClick = { onRemoveNoteTag(tag.id) },
+        onDelete = { onRequestDeleteTag(tag.id, tag.name) },
         contentDescription = stringResource(R.string.cd_remove_tag),
     )
 }
@@ -1014,12 +1059,15 @@ private fun ManageNoteTagRow(
 @Composable
 private fun ManagePendingTagRow(
     name: String,
+    tagId: Long?,
     onRemovePending: (String) -> Unit,
+    onRequestDeleteTag: (id: Long?, name: String) -> Unit,
 ) {
     ManageTagCheckRow(
         name = name,
         checked = true,
         onClick = { onRemovePending(name) },
+        onDelete = { onRequestDeleteTag(tagId, name) },
         contentDescription = stringResource(R.string.cd_remove_pending_tag),
     )
 }
@@ -1029,11 +1077,13 @@ private fun ManagePendingTagRow(
 private fun ManageAvailableTagRow(
     tag: TagEntity,
     onToggle: (String) -> Unit,
+    onRequestDeleteTag: (id: Long?, name: String) -> Unit,
 ) {
     ManageTagCheckRow(
         name = tag.name,
         checked = false,
         onClick = { onToggle(tag.name) },
+        onDelete = { onRequestDeleteTag(tag.id, tag.name) },
     )
 }
 
@@ -1042,27 +1092,42 @@ private fun ManageTagCheckRow(
     name: String,
     checked: Boolean,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
     contentDescription: String? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClickLabel = contentDescription, onClick = onClick)
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = null,
-        )
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyLarge,
-            color = NegroTexto,
-            modifier = Modifier.padding(start = 4.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClickLabel = contentDescription, onClick = onClick)
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = null,
+            )
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = NegroTexto,
+                modifier = Modifier.padding(start = 4.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = stringResource(R.string.cd_delete_tag),
+                tint = NegroTexto,
+            )
+        }
     }
     HorizontalDivider()
 }

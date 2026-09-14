@@ -137,6 +137,11 @@ class NotasRepository(
         dao.unlinkTag(noteId, tagId)
     }
 
+    /** Elimina la etiqueta de todas las notas y del catálogo. */
+    suspend fun deleteTag(tagId: Long) {
+        dao.deleteTagById(tagId)
+    }
+
     suspend fun copyGalleryImagesToNote(noteId: Long, uris: List<Uri>) {
         if (uris.isEmpty()) return
         val existing = dao.observeImagesForNote(noteId).first()

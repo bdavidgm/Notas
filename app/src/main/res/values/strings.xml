@@ -56,6 +56,9 @@
     <string name="manage_tags_no_matches">Sin coincidencias</string>
     <string name="cd_remove_pending_tag">Quitar de la selección</string>
     <string name="cd_remove_tag">Quitar etiqueta</string>
+    <string name="cd_delete_tag">Eliminar etiqueta por completo</string>
+    <string name="dialog_delete_tag_title">¿Eliminar etiqueta?</string>
+    <string name="dialog_delete_tag_message">Se borrará «%1$s» de todas las notas. Esta acción no se puede deshacer.</string>
     <string name="section_photos">Fotos</string>
     <string name="action_add_photos">Añadir fotos</string>
     <string name="cd_remove_photo">Quitar foto</string>

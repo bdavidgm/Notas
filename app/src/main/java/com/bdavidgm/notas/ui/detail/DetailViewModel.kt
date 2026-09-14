@@ -166,6 +166,12 @@ class DetailViewModel(
         }
     }
 
+    fun deleteTag(tagId: Long) {
+        viewModelScope.launch {
+            repository.deleteTag(tagId)
+        }
+    }
+
     suspend fun addPictures(uris: List<android.net.Uri>) {
         repository.copyGalleryImagesToNote(noteId, uris)
     }

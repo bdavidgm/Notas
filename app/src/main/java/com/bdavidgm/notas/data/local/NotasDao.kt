@@ -65,6 +65,10 @@ interface NotasDao {
     @Query("DELETE FROM note_tags WHERE noteId = :noteId AND tagId = :tagId")
     suspend fun unlinkTag(noteId: Long, tagId: Long): Int
 
+    /** Borra la etiqueta; las uniones en note_tags caen por CASCADE. */
+    @Query("DELETE FROM tags WHERE id = :tagId")
+    suspend fun deleteTagById(tagId: Long): Int
+
     @Insert
     suspend fun insertNoteImage(image: NoteImageEntity): Long
 
