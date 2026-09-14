@@ -242,8 +242,12 @@ internal fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
         val file = cameraTarget
         cameraTarget = null
         if (file != null) {
-            if (saved) insertPhoto(file.absolutePath)
-            else scope.launch { viewModel.discardBodyPhoto(file) }
+            if (saved) {
+                insertPhoto(file.absolutePath)
+                scope.launch { viewModel.registerBodyPhoto(file) }
+            } else {
+                scope.launch { viewModel.discardBodyPhoto(file) }
+            }
         }
     }
 
@@ -338,13 +342,14 @@ internal fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
                         },
                     )
 
-                    is BodyBlock.Photo -> BodyPhotoBlock(
-                        photo = block,
-                        onRemove = {
-                            body.remove(block.id)
-                            push()
-                        },
-                    )
+                        is BodyBlock.Photo -> BodyPhotoBlock(
+                            photo = block,
+                            onRemove = {
+                                body.remove(block.id)
+                                push()
+                                viewModel.removeBodyPhoto(block.url)
+                            },
+                        )
                 }
             }
         }

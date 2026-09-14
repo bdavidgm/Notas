@@ -250,6 +250,7 @@ private fun HomeSearchField(viewModel: HomeViewModel) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         singleLine = true,
         placeholder = { Text(stringResource(R.string.search_hint)) },
+        shape = RoundedCornerShape(28.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Celeste,
             unfocusedBorderColor = Celeste,

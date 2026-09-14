@@ -65,8 +65,6 @@
     <string name="action_photo_camera">Hacer una foto</string>
     <string name="snackbar_photo_error">No se pudo insertar la foto</string>
     <string name="snackbar_no_camera">No hay ninguna aplicación de cámara</string>
-    <string name="section_photos">Fotos</string>
-    <string name="action_add_photos">Añadir fotos</string>
     <string name="cd_remove_photo">Quitar foto</string>
     <string name="cd_overflow_menu">Más opciones</string>
     <string name="action_export">Exportar</string>
@@ -83,6 +81,10 @@
     <string name="action_export_txt">Exportar como .txt</string>
     <string name="action_export_md">Exportar como .md</string>
     <string name="dialog_export_note_title">Exportar nota</string>
+    <string name="dialog_export_photos_title">Exportar con fotos</string>
+    <string name="dialog_export_photos_message">Esta nota tiene fotos. Elige cómo llevártelas.</string>
+    <string name="action_export_zip">Todo en un .zip</string>
+    <string name="action_export_files">Archivos sueltos en una carpeta</string>
     <string name="snackbar_note_export_ok">Nota exportada.</string>
     <string name="snackbar_note_export_error">No se pudo exportar la nota.</string>
     <string name="action_import">Importar copia</string>

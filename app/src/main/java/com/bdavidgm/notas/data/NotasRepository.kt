@@ -2,6 +2,7 @@ package com.bdavidgm.notas.data
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import com.bdavidgm.notas.data.local.NoteEntity
 import com.bdavidgm.notas.data.local.NoteImageEntity
 import com.bdavidgm.notas.data.local.NoteTagCrossRef
@@ -26,7 +27,9 @@ import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import com.bdavidgm.notas.ui.util.NoteExportPhoto
 import com.bdavidgm.notas.ui.util.parsePlainNoteDocument
+import com.bdavidgm.notas.ui.util.relocateBodyPhotos
 
 class NotasRepository(
     private val dao: NotasDao,
@@ -38,8 +41,6 @@ class NotasRepository(
 
     fun observeNoteWithTags(noteId: Long): Flow<NoteWithTags?> =
         dao.observeNoteTagJoinRowsForNote(noteId).map { it.toSingleNoteWithTags() }
-
-    fun observeImages(noteId: Long) = dao.observeImagesForNote(noteId)
 
     fun observeAllTags(): Flow<List<TagEntity>> = dao.observeAllTags()
 
@@ -142,48 +143,28 @@ class NotasRepository(
         dao.deleteTagById(tagId)
     }
 
-    suspend fun copyGalleryImagesToNote(noteId: Long, uris: List<Uri>) {
-        if (uris.isEmpty()) return
-        val existing = dao.observeImagesForNote(noteId).first()
-        var order = existing.maxOfOrNull { it.sortOrder }?.plus(1) ?: 0
-        withContext(Dispatchers.IO) {
-            val dir = File(appContext.filesDir, "note_images/$noteId").apply { mkdirs() }
-            for (uri in uris) {
-                val dest = File(dir, "${UUID.randomUUID()}.jpg")
-                appContext.contentResolver.openInputStream(uri)?.use { input ->
-                    dest.outputStream().use { output -> input.copyTo(output) }
-                } ?: continue
-                dao.insertNoteImage(
-                    NoteImageEntity(
-                        noteId = noteId,
-                        storedPath = dest.absolutePath,
-                        sortOrder = order++,
-                    ),
-                )
-            }
-        }
-    }
-
     /**
-     * Copia una imagen de la galería al almacenamiento interno de la nota y
-     * devuelve su ruta absoluta. A diferencia de [copyGalleryImagesToNote] no
-     * registra la foto en la galería de la nota: va incrustada en el cuerpo.
+     * Copia una imagen de la galería al almacenamiento interno de la nota, la
+     * registra en note_images y devuelve su ruta absoluta, que es lo que enlaza
+     * el cuerpo.
      */
-    suspend fun copyImageIntoNoteBody(noteId: Long, uri: Uri): String? =
-        withContext(Dispatchers.IO) {
-            val dest = newNoteBodyImageFile(noteId)
-            val copied = appContext.contentResolver.openInputStream(uri)?.use { input ->
+    suspend fun copyImageIntoNoteBody(noteId: Long, uri: Uri): String? {
+        val dest = newNoteBodyImageFile(noteId)
+        val copied = withContext(Dispatchers.IO) {
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
                 dest.outputStream().use { output -> input.copyTo(output) }
                 true
             } ?: false
-
-            if (copied) {
-                dest.absolutePath
-            } else {
-                dest.delete()
-                null
-            }
         }
+
+        if (!copied) {
+            withContext(Dispatchers.IO) { dest.delete() }
+            return null
+        }
+
+        registerNoteBodyImage(noteId, dest)
+        return dest.absolutePath
+    }
 
     /** Fichero destino para una captura de cámara, dentro de la carpeta de la nota. */
     suspend fun newNoteBodyImageFile(noteId: Long): File =
@@ -192,15 +173,30 @@ class NotasRepository(
             File(dir, "${UUID.randomUUID()}.jpg")
         }
 
-    suspend fun deleteBodyImageFile(file: File) {
-        withContext(Dispatchers.IO) { file.delete() }
+    /**
+     * Da de alta en note_images una foto ya escrita en disco (la cámara escribe
+     * el fichero por su cuenta, así que se registra cuando la captura ha ido bien).
+     */
+    suspend fun registerNoteBodyImage(noteId: Long, file: File) {
+        val existing = dao.getImagesForNoteExport(noteId)
+        if (existing.any { it.storedPath == file.absolutePath }) return
+        dao.insertNoteImage(
+            NoteImageEntity(
+                noteId = noteId,
+                storedPath = file.absolutePath,
+                sortOrder = existing.maxOfOrNull { it.sortOrder }?.plus(1) ?: 0,
+            ),
+        )
     }
 
-    suspend fun deleteImage(imageId: Long, storedPath: String) {
-        withContext(Dispatchers.IO) {
-            File(storedPath).delete()
-        }
-        dao.deleteImage(imageId)
+    /** Quita del cuerpo una foto: fuera de la tabla y fuera del disco. */
+    suspend fun removeNoteBodyImage(noteId: Long, storedPath: String) {
+        dao.deleteImageByPath(noteId, storedPath)
+        withContext(Dispatchers.IO) { File(storedPath).delete() }
+    }
+
+    suspend fun deleteBodyImageFile(file: File) {
+        withContext(Dispatchers.IO) { file.delete() }
     }
 
     /**
@@ -215,6 +211,111 @@ class NotasRepository(
             }
         }
     }
+
+    /**
+     * Empaqueta la nota y sus fotos en un ZIP: el documento en la raíz y las
+     * fotos en [photosFolderName], que es lo que enlaza el documento.
+     */
+    suspend fun writeNoteExportZip(
+        destinationUri: Uri,
+        documentName: String,
+        document: String,
+        photosFolderName: String,
+        photos: List<NoteExportPhoto>,
+    ) {
+        withContext(Dispatchers.IO) {
+            val out = appContext.contentResolver.openOutputStream(destinationUri)
+                ?: throw IOException("No se pudo escribir en el destino elegido.")
+            ZipOutputStream(BufferedOutputStream(out)).use { zos ->
+                zos.putNextEntry(ZipEntry(documentName))
+                zos.write(document.toByteArray(StandardCharsets.UTF_8))
+                zos.closeEntry()
+                for (photo in photos) {
+                    if (!photo.source.isFile) continue
+                    zos.putNextEntry(ZipEntry("$photosFolderName/${photo.fileName}"))
+                    photo.source.inputStream().use { input -> input.copyTo(zos) }
+                    zos.closeEntry()
+                }
+            }
+        }
+    }
+
+    /**
+     * Escribe la nota en la carpeta elegida junto a una subcarpeta con sus fotos.
+     *
+     * SAF renombra lo que ya existe, así que la subcarpeta se crea primero y el
+     * documento se compone después con [buildDocument], ya con el nombre real;
+     * si no, los enlaces relativos apuntarían a una carpeta que no es. La
+     * subcarpeta recién creada está vacía, de modo que los nombres de las fotos
+     * sí se respetan.
+     */
+    suspend fun writeNoteExportFiles(
+        treeUri: Uri,
+        documentName: String,
+        mimeType: String,
+        photosFolderName: String,
+        photos: List<NoteExportPhoto>,
+        buildDocument: (photosFolderName: String) -> String,
+    ) {
+        withContext(Dispatchers.IO) {
+            val resolver = appContext.contentResolver
+            val parentUri = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                DocumentsContract.getTreeDocumentId(treeUri),
+            )
+
+            val existingPhotos = photos.filter { it.source.isFile }
+            val photosFolder = if (existingPhotos.isEmpty()) {
+                null
+            } else {
+                DocumentsContract.createDocument(
+                    resolver,
+                    parentUri,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    photosFolderName,
+                ) ?: throw IOException("No se pudo crear la carpeta de fotos.")
+            }
+            val folderName = photosFolder?.let { displayName(it) } ?: photosFolderName
+
+            val documentUri = DocumentsContract.createDocument(
+                resolver,
+                parentUri,
+                mimeType,
+                documentName,
+            ) ?: throw IOException("No se pudo crear el archivo de la nota.")
+
+            resolver.openOutputStream(documentUri)?.use { out ->
+                out.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
+                    writer.write(buildDocument(folderName))
+                }
+            } ?: throw IOException("No se pudo escribir la nota.")
+
+            if (photosFolder != null) {
+                for (photo in existingPhotos) {
+                    val photoUri = DocumentsContract.createDocument(
+                        resolver,
+                        photosFolder,
+                        "image/jpeg",
+                        photo.fileName,
+                    ) ?: throw IOException("No se pudo crear ${photo.fileName}.")
+                    resolver.openOutputStream(photoUri)?.use { out ->
+                        photo.source.inputStream().use { input -> input.copyTo(out) }
+                    } ?: throw IOException("No se pudo copiar ${photo.fileName}.")
+                }
+            }
+        }
+    }
+
+    private fun displayName(uri: Uri): String? =
+        appContext.contentResolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
 
     /**
      * Exporta todas las notas (texto, etiquetas e imágenes) a un ZIP con [manifest.json].
@@ -249,20 +350,35 @@ class NotasRepository(
 
         for (nwt in notesWithTags) {
             val exportId = UUID.randomUUID().toString()
+            // Las fotos incrustadas se localizan por el texto, que es lo único que
+            // dice dónde va cada una; hay que reapuntar sus enlaces al ZIP.
+            val body = relocateBodyPhotos(nwt.note.content, "body/$exportId")
+            val bodyImagesJson = JSONArray()
+            for (photo in body.photos) {
+                val zipPath = "body/$exportId/${photo.fileName}"
+                bodyImagesJson.put(zipPath)
+                imageWrites.add(zipPath to photo.source)
+            }
+
             val noteObj = JSONObject()
             noteObj.put("exportId", exportId)
             noteObj.put("title", nwt.note.title)
-            noteObj.put("content", nwt.note.content)
+            noteObj.put("content", body.content)
+            noteObj.put("bodyImages", bodyImagesJson)
             noteObj.put("createdAtMillis", nwt.note.createdAtMillis)
             noteObj.put("updatedAtMillis", nwt.note.updatedAtMillis)
             val tagsArr = JSONArray()
             nwt.tags.forEach { tagsArr.put(it.name) }
             noteObj.put("tags", tagsArr)
 
+            // Las fotos del cuerpo están en note_images y ya viajan en `body/`:
+            // sin esto irían dos veces en el ZIP.
+            val bodyPhotoPaths = body.photos.map { it.source.absolutePath }.toSet()
             val imagesJson = JSONArray()
             val images = dao.getImagesForNoteExport(nwt.note.id)
             var fileIndex = 0
             for (img in images) {
+                if (img.storedPath in bodyPhotoPaths) continue
                 val file = File(img.storedPath)
                 if (!file.isFile) continue
                 val path = "images/$exportId/$fileIndex.jpg"
@@ -347,6 +463,36 @@ class NotasRepository(
                         dao.linkTagToNote(NoteTagCrossRef(noteId = noteId, tagId = tag.id))
                     }
                 }
+                // Las fotos del cuerpo vuelven al almacenamiento interno y sus
+                // enlaces relativos pasan a apuntar a la copia recién hecha.
+                val bodyImages = n.optJSONArray("bodyImages")
+                if (bodyImages != null && bodyImages.length() > 0) {
+                    var restoredContent = content
+                    val dir = File(appContext.filesDir, "note_images/$noteId").apply { mkdirs() }
+                    for (j in 0 until bodyImages.length()) {
+                        val path = bodyImages.getString(j)
+                        val src = resolveZipEntrySafe(stagingDir, path)
+                        if (!src.isFile) continue
+                        val dest = File(dir, "${UUID.randomUUID()}.jpg")
+                        src.inputStream().use { inp ->
+                            dest.outputStream().use { out -> inp.copyTo(out) }
+                        }
+                        registerNoteBodyImage(noteId, dest)
+                        restoredContent = restoredContent.replace(path, "file://${dest.absolutePath}")
+                    }
+                    if (restoredContent != content) {
+                        dao.updateNote(
+                            NoteEntity(
+                                id = noteId,
+                                title = title,
+                                content = restoredContent,
+                                createdAtMillis = created,
+                                updatedAtMillis = updated,
+                            ),
+                        )
+                    }
+                }
+
                 val images = n.optJSONArray("images")
                 if (images != null) {
                     val pairs = mutableListOf<Pair<Int, String>>()
@@ -355,7 +501,9 @@ class NotasRepository(
                         pairs.add(im.optInt("sortOrder", j) to im.getString("path"))
                     }
                     pairs.sortBy { it.first }
-                    var order = 0
+                    // Las fotos del cuerpo ya ocupan las primeras posiciones.
+                    var order = dao.getImagesForNoteExport(noteId)
+                        .maxOfOrNull { it.sortOrder }?.plus(1) ?: 0
                     for ((_, path) in pairs) {
                         val src = resolveZipEntrySafe(stagingDir, path)
                         if (!src.isFile) continue

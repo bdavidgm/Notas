@@ -6,9 +6,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bdavidgm.notas.data.NotasRepository
 import com.bdavidgm.notas.data.NoteWithTags
-import com.bdavidgm.notas.data.local.NoteImageEntity
 import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.buildNoteExportDocument
+import com.bdavidgm.notas.ui.util.buildNoteExportPackage
+import com.bdavidgm.notas.ui.util.hasExportablePhotos
+import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
+import com.bdavidgm.notas.ui.util.suggestedNotePhotosFolderName
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +27,9 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+
+/** Carpeta de fotos dentro del ZIP de una nota. */
+private const val ZIP_PHOTOS_FOLDER = "imagenes"
 
 sealed interface NoteExportFeedback {
     data object Ok : NoteExportFeedback
@@ -61,9 +67,6 @@ class DetailViewModel(
 
     val noteWithTags = repository.observeNoteWithTags(noteId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    val images = repository.observeImages(noteId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val allTags = repository.observeAllTags()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -181,10 +184,6 @@ class DetailViewModel(
         }
     }
 
-    suspend fun addPictures(uris: List<android.net.Uri>) {
-        repository.copyGalleryImagesToNote(noteId, uris)
-    }
-
     /** Foto elegida en la galería para incrustar en el cuerpo; devuelve su ruta. */
     suspend fun importBodyPhoto(uri: Uri): String? =
         repository.copyImageIntoNoteBody(noteId, uri)
@@ -193,8 +192,19 @@ class DetailViewModel(
     suspend fun newBodyPhotoFile(): File =
         repository.newNoteBodyImageFile(noteId)
 
+    /** La captura salió bien: la foto pasa a la tabla de imágenes. */
+    suspend fun registerBodyPhoto(file: File) {
+        repository.registerNoteBodyImage(noteId, file)
+    }
+
     suspend fun discardBodyPhoto(file: File) {
         repository.deleteBodyImageFile(file)
+    }
+
+    /** Foto quitada del cuerpo: fuera de la tabla y del disco. */
+    fun removeBodyPhoto(url: String) {
+        val path = url.removePrefix("file://")
+        viewModelScope.launch { repository.removeNoteBodyImage(noteId, path) }
     }
 
     fun reportPhotoError() {
@@ -205,39 +215,121 @@ class DetailViewModel(
         viewModelScope.launch { _photoFeedback.send(NotePhotoFeedback.NoCamera) }
     }
 
-    fun deleteImage(entity: NoteImageEntity) {
-        viewModelScope.launch {
-            repository.deleteImage(entity.id, entity.storedPath)
-        }
+    /** ¿La nota lleva fotos que haya que empaquetar al exportar? */
+    fun currentBodyHasPhotos(): Boolean {
+        syncDraftContentFromEditor()
+        return hasExportablePhotos(_draftContent.value)
     }
 
+    /** Solo texto: los enlaces de foto se quedan como están. */
     fun exportNote(destinationUri: Uri, format: NoteExportFormat) {
         viewModelScope.launch {
-            try {
-                if (_isEditing.value) {
-                    repository.persistDraftIfChanged(
-                        noteId = noteId,
-                        title = _draftTitle.value,
-                        content = _draftContent.value,
-                    )
-                }
-                val nwt = noteWithTags.value
-                    ?: repository.observeNoteWithTags(noteId).filterNotNull().first()
-                val text = buildNoteExportDocument(
-                    title = _draftTitle.value,
-                    createdAtMillis = nwt.note.createdAtMillis,
-                    updatedAtMillis = nwt.note.updatedAtMillis,
-                    content = _draftContent.value,
-                    tagNames = nwt.tags.map { it.name },
-                    format = format,
+            runExport {
+                val data = exportData()
+                repository.writeTextExport(
+                    destinationUri = destinationUri,
+                    text = buildNoteExportDocument(
+                        title = data.title,
+                        createdAtMillis = data.createdAtMillis,
+                        updatedAtMillis = data.updatedAtMillis,
+                        content = data.content,
+                        tagNames = data.tagNames,
+                        format = format,
+                    ),
                 )
-                repository.writeTextExport(destinationUri, text)
-                _exportFeedback.send(NoteExportFeedback.Ok)
-            } catch (_: Exception) {
-                _exportFeedback.send(NoteExportFeedback.Fail)
             }
         }
     }
+
+    /** Nota y fotos en un único ZIP. */
+    fun exportNoteAsZip(destinationUri: Uri, format: NoteExportFormat) {
+        viewModelScope.launch {
+            runExport {
+                val data = exportData()
+                val packaged = data.pack(format, ZIP_PHOTOS_FOLDER)
+                repository.writeNoteExportZip(
+                    destinationUri = destinationUri,
+                    documentName = suggestedNoteExportFileName(data.title, format),
+                    document = packaged.document,
+                    photosFolderName = ZIP_PHOTOS_FOLDER,
+                    photos = packaged.photos,
+                )
+            }
+        }
+    }
+
+    /** Nota y carpeta de fotos como archivos sueltos en la carpeta elegida. */
+    fun exportNoteToFolder(treeUri: Uri, format: NoteExportFormat) {
+        viewModelScope.launch {
+            runExport {
+                val data = exportData()
+                val folderName = suggestedNotePhotosFolderName(data.title)
+                repository.writeNoteExportFiles(
+                    treeUri = treeUri,
+                    documentName = suggestedNoteExportFileName(data.title, format),
+                    mimeType = format.mimeType,
+                    photosFolderName = folderName,
+                    photos = data.pack(format, folderName).photos,
+                    buildDocument = { realFolderName ->
+                        data.pack(format, realFolderName).document
+                    },
+                )
+            }
+        }
+    }
+
+    private suspend fun runExport(block: suspend () -> Unit) {
+        try {
+            block()
+            _exportFeedback.send(NoteExportFeedback.Ok)
+        } catch (_: Exception) {
+            _exportFeedback.send(NoteExportFeedback.Fail)
+        }
+    }
+
+    private suspend fun exportData(): ExportData {
+        syncDraftContentFromEditor()
+        if (_isEditing.value) {
+            repository.persistDraftIfChanged(
+                noteId = noteId,
+                title = _draftTitle.value,
+                content = _draftContent.value,
+            )
+        }
+        val nwt = noteWithTags.value
+            ?: repository.observeNoteWithTags(noteId).filterNotNull().first()
+        return ExportData(
+            title = _draftTitle.value,
+            createdAtMillis = nwt.note.createdAtMillis,
+            updatedAtMillis = nwt.note.updatedAtMillis,
+            content = _draftContent.value,
+            tagNames = nwt.tags.map { it.name },
+        )
+    }
+
+    /** El editor vuelca el cuerpo con retardo; exportar necesita el texto de ahora. */
+    private fun syncDraftContentFromEditor() {
+        bodySnapshotProvider?.invoke()?.let { _draftContent.value = it }
+    }
+
+    private data class ExportData(
+        val title: String,
+        val createdAtMillis: Long,
+        val updatedAtMillis: Long,
+        val content: String,
+        val tagNames: List<String>,
+    )
+
+    private fun ExportData.pack(format: NoteExportFormat, photosFolderName: String) =
+        buildNoteExportPackage(
+            title = title,
+            createdAtMillis = createdAtMillis,
+            updatedAtMillis = updatedAtMillis,
+            content = content,
+            tagNames = tagNames,
+            format = format,
+            photosFolderName = photosFolderName,
+        )
 
     companion object {
         fun factory(noteId: Long, repository: NotasRepository) = object : ViewModelProvider.Factory {

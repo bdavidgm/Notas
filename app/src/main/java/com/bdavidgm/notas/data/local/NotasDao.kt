@@ -72,8 +72,8 @@ interface NotasDao {
     @Insert
     suspend fun insertNoteImage(image: NoteImageEntity): Long
 
-    @Query("DELETE FROM note_images WHERE id = :id")
-    suspend fun deleteImage(id: Long): Int
+    @Query("DELETE FROM note_images WHERE noteId = :noteId AND storedPath = :storedPath")
+    suspend fun deleteImageByPath(noteId: Long, storedPath: String): Int
 
     @Query("SELECT * FROM note_images WHERE noteId = :noteId ORDER BY sortOrder ASC, id ASC")
     fun observeImagesForNote(noteId: Long): Flow<List<NoteImageEntity>>

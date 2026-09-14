@@ -2,7 +2,6 @@ package com.bdavidgm.notas.ui.detail
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -57,7 +55,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -68,11 +65,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.data.local.NoteEntity
-import com.bdavidgm.notas.data.local.NoteImageEntity
 import com.bdavidgm.notas.data.local.TagEntity
 import com.bdavidgm.notas.ui.components.CelesteElevatedButton
 import com.bdavidgm.notas.ui.components.NotasScaffold
@@ -84,8 +78,8 @@ import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.buildNoteCopyText
 import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
+import com.bdavidgm.notas.ui.util.suggestedNoteExportZipFileName
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.Locale
 
 @Composable
@@ -106,6 +100,7 @@ fun DetailScreen(
     var showManageTags by remember { mutableStateOf(false) }
     var copyOptions by remember { mutableStateOf(NoteCopyOptions()) }
     var pendingExportFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
+    var packagingFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.photoFeedback.collect { feedback ->
@@ -147,12 +142,23 @@ fun DetailScreen(
         }
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(),
-    ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            viewModel.addPictures(uris)
+    val exportZipLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val format = pendingExportFormat
+        pendingExportFormat = null
+        if (uri != null && format != null) {
+            viewModel.exportNoteAsZip(uri, format)
+        }
+    }
+
+    val exportFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { treeUri ->
+        val format = pendingExportFormat
+        pendingExportFormat = null
+        if (treeUri != null && format != null) {
+            viewModel.exportNoteToFolder(treeUri, format)
         }
     }
 
@@ -195,13 +201,19 @@ fun DetailScreen(
                     TextButton(
                         onClick = {
                             showExportDialog = false
-                            pendingExportFormat = NoteExportFormat.TXT
-                            exportTxtLauncher.launch(
-                                suggestedNoteExportFileName(
-                                    viewModel.draftTitle.value,
-                                    NoteExportFormat.TXT,
-                                ),
-                            )
+                            // Con fotos hay que preguntar antes cómo empaquetarlas;
+                            // el .txt/.md a secas se llevaría enlaces rotos.
+                            if (viewModel.currentBodyHasPhotos()) {
+                                packagingFormat = NoteExportFormat.TXT
+                            } else {
+                                pendingExportFormat = NoteExportFormat.TXT
+                                exportTxtLauncher.launch(
+                                    suggestedNoteExportFileName(
+                                        viewModel.draftTitle.value,
+                                        NoteExportFormat.TXT,
+                                    ),
+                                )
+                            }
                         },
                     ) {
                         Text(stringResource(R.string.action_export_txt))
@@ -209,13 +221,17 @@ fun DetailScreen(
                     TextButton(
                         onClick = {
                             showExportDialog = false
-                            pendingExportFormat = NoteExportFormat.MD
-                            exportMdLauncher.launch(
-                                suggestedNoteExportFileName(
-                                    viewModel.draftTitle.value,
-                                    NoteExportFormat.MD,
-                                ),
-                            )
+                            if (viewModel.currentBodyHasPhotos()) {
+                                packagingFormat = NoteExportFormat.MD
+                            } else {
+                                pendingExportFormat = NoteExportFormat.MD
+                                exportMdLauncher.launch(
+                                    suggestedNoteExportFileName(
+                                        viewModel.draftTitle.value,
+                                        NoteExportFormat.MD,
+                                    ),
+                                )
+                            }
                         },
                     ) {
                         Text(stringResource(R.string.action_export_md))
@@ -228,6 +244,24 @@ fun DetailScreen(
                     Text(stringResource(R.string.action_cancel))
                 }
             },
+        )
+    }
+
+    packagingFormat?.let { format ->
+        ExportPackagingDialog(
+            onZip = {
+                packagingFormat = null
+                pendingExportFormat = format
+                exportZipLauncher.launch(
+                    suggestedNoteExportZipFileName(viewModel.draftTitle.value),
+                )
+            },
+            onFiles = {
+                packagingFormat = null
+                pendingExportFormat = format
+                exportFolderLauncher.launch(null)
+            },
+            onDismiss = { packagingFormat = null },
         )
     }
 
@@ -390,13 +424,6 @@ fun DetailScreen(
             note = note,
             tags = nwt?.tags.orEmpty(),
             isEditing = isEditing,
-            onAddPhotos = {
-                galleryLauncher.launch(
-                    PickVisualMediaRequest(
-                        ActivityResultContracts.PickVisualMedia.ImageOnly,
-                    ),
-                )
-            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -410,7 +437,6 @@ private fun DetailNoteBody(
     note: NoteEntity,
     tags: List<TagEntity>,
     isEditing: Boolean,
-    onAddPhotos: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val removeTag = remember(viewModel) { viewModel::removeTag }
@@ -445,12 +471,10 @@ private fun DetailNoteBody(
         }
 
         Spacer(Modifier.height(20.dp))
-        DetailMetaSections(
+        DetailTagsSection(
             tags = tags,
             isEditing = isEditing,
             onRemoveTag = removeTag,
-            viewModel = viewModel,
-            onAddPhotos = onAddPhotos,
         )
     }
 }
@@ -471,12 +495,10 @@ private fun Modifier.ignoreChildBringIntoView(): Modifier =
     )
 
 @Composable
-private fun DetailMetaSections(
+private fun DetailTagsSection(
     tags: List<TagEntity>,
     isEditing: Boolean,
     onRemoveTag: (Long) -> Unit,
-    viewModel: DetailViewModel,
-    onAddPhotos: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -489,17 +511,6 @@ private fun DetailMetaSections(
             tags = tags,
             isEditing = isEditing,
             onRemoveTag = onRemoveTag,
-        )
-        Spacer(Modifier.height(20.dp))
-        Text(
-            text = stringResource(R.string.section_photos),
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Spacer(Modifier.height(8.dp))
-        NotePhotosSection(
-            viewModel = viewModel,
-            isEditing = isEditing,
-            onAddPhotos = onAddPhotos,
         )
     }
 }
@@ -583,6 +594,43 @@ private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
     )
 }
 
+/** Las fotos de la nota no caben en un solo .txt/.md: o van en un ZIP o al lado. */
+@Composable
+private fun ExportPackagingDialog(
+    onZip: () -> Unit,
+    onFiles: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.dialog_export_photos_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.dialog_export_photos_message))
+                Spacer(Modifier.height(12.dp))
+                TextButton(
+                    onClick = onZip,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_export_zip))
+                }
+                TextButton(
+                    onClick = onFiles,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_export_files))
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
+}
+
 @Composable
 private fun ReadOnlyNoteBody(viewModel: DetailViewModel) {
     val draftTitle by viewModel.draftTitle.collectAsStateWithLifecycle()
@@ -655,36 +703,6 @@ private fun NoteTagChip(
                     tint = NegroTexto,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun NotePhotosSection(
-    viewModel: DetailViewModel,
-    isEditing: Boolean,
-    onAddPhotos: () -> Unit,
-) {
-    val images by viewModel.images.collectAsStateWithLifecycle()
-    val onDeleteImage = remember(viewModel) { viewModel::deleteImage }
-
-    if (isEditing) {
-        CelesteElevatedButton(onClick = onAddPhotos) {
-            Text(stringResource(R.string.action_add_photos))
-        }
-        Spacer(Modifier.height(8.dp))
-    }
-
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        images.forEach { img ->
-            PhotoTile(
-                image = img,
-                editable = isEditing,
-                onDelete = onDeleteImage,
-            )
         }
     }
 }
@@ -1072,37 +1090,5 @@ private fun CopyOptionRow(
                 .weight(1f)
                 .padding(start = 4.dp),
         )
-    }
-}
-
-@Composable
-private fun PhotoTile(
-    image: NoteImageEntity,
-    editable: Boolean,
-    onDelete: (NoteImageEntity) -> Unit,
-) {
-    val context = LocalContext.current
-    Box {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(File(image.storedPath))
-                .crossfade(true)
-                .build(),
-            contentDescription = null,
-            modifier = Modifier.size(140.dp),
-            contentScale = ContentScale.Crop,
-        )
-        if (editable) {
-            IconButton(
-                onClick = { onDelete(image) },
-                modifier = Modifier.align(Alignment.TopEnd),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = stringResource(R.string.cd_remove_photo),
-                    tint = NegroTexto,
-                )
-            }
-        }
     }
 }
