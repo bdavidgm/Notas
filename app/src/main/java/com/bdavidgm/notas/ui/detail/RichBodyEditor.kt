@@ -57,6 +57,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.ui.theme.NegroTexto
+import com.bdavidgm.notas.ui.util.NOTE_LINK_BOUNDARY
+import com.bdavidgm.notas.ui.util.ensureRichLinkBoundaries
+import com.bdavidgm.notas.ui.util.ensurePureMarkdown
 import com.bdavidgm.notas.ui.util.parseNoteLinkUid
 import com.mohamedrejeb.richeditor.model.RichTextState
 import com.mohamedrejeb.richeditor.ui.BasicRichTextEditor
@@ -104,6 +107,9 @@ private val IMAGE_MARKDOWN = Regex("""!\[([^\]]*)]\(([^)\n]+)\)""")
  * que en el texto visible, sin tener que mapear offsets a mano.
  */
 private const val SPLIT_MARK = "@@NOTAS_SPLIT@@"
+
+/** La librería emite `<br>` para líneas vacías; nunca lo dejamos salir del editor. */
+private fun RichTextState.toPureMarkdown(): String = ensurePureMarkdown(toMarkdown())
 
 /**
  * Parte el Markdown en bloques. Cada foto queda entre dos bloques de texto (aunque
@@ -392,13 +398,16 @@ private fun BodyTextBlock(
     // se confunde con una edición del usuario.
     val state = remember {
         RichTextState().apply {
-            setMarkdown(block.markdown)
+            // rc10 atribuye la escritura en el borde derecho de un enlace al
+            // párrafo siguiente (#709). Un límite invisible de estilo normal
+            // elimina la ambigüedad también en enlaces guardados anteriormente.
+            setMarkdown(ensureRichLinkBoundaries(block.markdown))
             selection = TextRange.Zero
         }
     }
     // El round-trip del Markdown normaliza (listas, énfasis…), así que la
     // referencia es lo que el editor devuelve, no lo que se le dio.
-    var lastKnown by remember { mutableStateOf(state.toMarkdown()) }
+    var lastKnown by remember { mutableStateOf(state.toPureMarkdown()) }
     val interactionSource = remember { IgnorePressInteractionSource() }
     val focusRequester = remember { FocusRequester() }
     val currentOnEdited by rememberUpdatedState(onEdited)
@@ -407,16 +416,16 @@ private fun BodyTextBlock(
     DisposableEffect(state) {
         onRegisterHandle(
             BodyTextHandle(
-                snapshot = { state.toMarkdown() },
+                snapshot = { state.toPureMarkdown() },
                 splitAtCursor = {
                     state.addTextAfterSelection(SPLIT_MARK)
-                    val parts = state.toMarkdown().split(SPLIT_MARK, limit = 2)
+                    val parts = state.toPureMarkdown().split(SPLIT_MARK, limit = 2)
                     parts[0] to parts.getOrElse(1) { "" }
                 },
             ),
         )
         onDispose {
-            currentOnFlush(state.toMarkdown())
+            currentOnFlush(state.toPureMarkdown())
             onRegisterHandle(null)
         }
     }
@@ -428,10 +437,26 @@ private fun BodyTextBlock(
             .drop(1)
             .debounce(400)
             .collect {
-                val markdown = state.toMarkdown()
+                val markdown = state.toPureMarkdown()
                 if (markdown == lastKnown) return@collect
                 lastKnown = markdown
                 currentOnEdited(markdown)
+            }
+    }
+
+    // Al tocar visualmente el final del enlace, Android puede colocar el cursor
+    // justo antes del límite invisible. Lo adelantamos sobre ese carácter para
+    // que Enter y la escritura pertenezcan al span normal y no al enlace.
+    LaunchedEffect(state) {
+        snapshotFlow { state.selection }
+            .collect { selection ->
+                if (!selection.collapsed) return@collect
+                val offset = selection.min
+                if (state.annotatedString.text.getOrNull(offset) != NOTE_LINK_BOUNDARY) {
+                    return@collect
+                }
+                if (state.selectedLinkUrl == null) return@collect
+                state.selection = TextRange(offset + 1)
             }
     }
 

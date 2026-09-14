@@ -110,7 +110,7 @@ fun buildNoteExportDocument(
         appendLine()
         appendLine(dateLine)
         appendLine()
-        append(content.trimEnd())
+        append(ensurePureMarkdown(content).trimEnd())
         if (tagsLine.isNotEmpty()) {
             appendLine()
             appendLine()
@@ -169,7 +169,7 @@ fun buildNoteCopyText(
         parts += "Última edición: ${formatNoteInstant(updatedAtMillis)}"
     }
     if (options.includeBody) {
-        parts += content.trimEnd()
+        parts += ensurePureMarkdown(removeRichLinkBoundaries(content)).trimEnd()
     }
     if (options.includeTags) {
         val tagsLine = tagNames

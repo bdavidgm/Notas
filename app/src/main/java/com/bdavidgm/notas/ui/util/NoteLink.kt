@@ -9,6 +9,15 @@ package com.bdavidgm.notas.ui.util
 const val NOTE_LINK_SCHEME = "notas"
 const val NOTE_LINK_HOST = "nota"
 
+/**
+ * Límite invisible de estilo normal después de un enlace interno.
+ *
+ * compose-rich-editor 1.0.0-rc10 tiene un error en el borde derecho de los
+ * enlaces: atribuye la escritura al párrafo siguiente. Este carácter crea un
+ * span normal donde colocar el cursor sin añadir espacio visible.
+ */
+const val NOTE_LINK_BOUNDARY = '\u200B'
+
 private val NOTE_LINK_URI = Regex("""^notas://nota/([^/\s?#]+)$""", RegexOption.IGNORE_CASE)
 
 /** Markdown `[texto](notas://nota/<uid>)` — solo el destino interno. */
@@ -16,6 +25,9 @@ private val NOTE_LINK_MARKDOWN = Regex(
     """\[([^\]]*)]\(notas://nota/([^)\s]+)\)""",
     RegexOption.IGNORE_CASE,
 )
+
+/** Cualquier enlace Markdown salvo imágenes (`![…](…)`). */
+private val RICH_LINK_MARKDOWN = Regex("""(?<!!)\[([^\]]*)]\(([^)\n]+)\)""")
 
 fun noteLinkUrl(uid: String): String = "$NOTE_LINK_SCHEME://$NOTE_LINK_HOST/$uid"
 
@@ -42,6 +54,24 @@ fun extractNoteLinkUids(content: String): List<String> {
 fun stripInternalNoteLinks(content: String): String =
     NOTE_LINK_MARKDOWN.replace(content) { match ->
         match.groupValues[1].ifBlank { match.value }
+    }.let(::removeRichLinkBoundaries)
+
+/** Quita únicamente el carácter técnico invisible, conservando los enlaces. */
+fun removeRichLinkBoundaries(content: String): String =
+    content.replace(NOTE_LINK_BOUNDARY.toString(), "")
+
+/**
+ * Garantiza que cada enlace tenga detrás un carácter de estilo normal.
+ * Es idempotente y sirve también para notas creadas antes del workaround.
+ */
+fun ensureRichLinkBoundaries(content: String): String =
+    RICH_LINK_MARKDOWN.replace(content) { match ->
+        val end = match.range.last + 1
+        if (content.getOrNull(end) == NOTE_LINK_BOUNDARY) {
+            match.value
+        } else {
+            match.value + NOTE_LINK_BOUNDARY
+        }
     }
 
 /**

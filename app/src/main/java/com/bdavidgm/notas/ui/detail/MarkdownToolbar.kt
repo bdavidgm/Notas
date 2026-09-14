@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -46,6 +47,8 @@ import androidx.compose.ui.unit.sp
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.ui.theme.Celeste
 import com.bdavidgm.notas.ui.theme.NegroTexto
+import com.bdavidgm.notas.ui.util.NOTE_LINK_BOUNDARY
+import com.mohamedrejeb.richeditor.model.RichSpanStyle
 import com.mohamedrejeb.richeditor.model.RichTextState
 
 @Composable
@@ -168,15 +171,39 @@ fun RichMarkdownFormatToolbar(
             onDismiss = { showLinkDialog = false },
             onConfirm = { linkText, url ->
                 val href = url.ifBlank { "https://" }
-                if (state.selection.collapsed) {
-                    state.addLink(text = linkText.ifBlank { placeholderLink }, url = href)
-                } else {
-                    state.addLinkToSelection(url = href)
-                }
+                insertLinkWithBoundary(
+                    state = state,
+                    fallbackText = linkText.ifBlank { placeholderLink },
+                    url = href,
+                )
                 showLinkDialog = false
             },
         )
     }
+}
+
+/**
+ * Inserta un enlace seguido de un carácter invisible sin estilo de enlace.
+ * Evita el bug #709 de compose-rich-editor al escribir o pulsar Enter justo
+ * después del enlace.
+ */
+private fun insertLinkWithBoundary(
+    state: RichTextState,
+    fallbackText: String,
+    url: String,
+) {
+    val selectedText = state.annotatedString.text
+        .substring(state.selection.min, state.selection.max)
+    val visibleText = selectedText.ifBlank { fallbackText }
+
+    if (!state.selection.collapsed) state.removeSelectedText()
+    state.addLink(text = visibleText + NOTE_LINK_BOUNDARY, url = url)
+    val boundaryEnd = state.selection.min
+    state.removeRichSpan(
+        spanStyle = RichSpanStyle.Link(url),
+        textRange = TextRange(boundaryEnd - 1, boundaryEnd),
+    )
+    state.selection = TextRange(boundaryEnd)
 }
 
 @Composable

@@ -29,6 +29,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import com.bdavidgm.notas.ui.util.NoteExportPhoto
+import com.bdavidgm.notas.ui.util.ensurePureMarkdown
 import com.bdavidgm.notas.ui.util.extractNoteLinkUids
 import com.bdavidgm.notas.ui.util.parsePlainNoteDocument
 import com.bdavidgm.notas.ui.util.relocateBodyPhotos
@@ -388,7 +389,10 @@ class NotasRepository(
             val exportId = nwt.note.uid.ifBlank { UUID.randomUUID().toString() }
             // Las fotos incrustadas se localizan por el texto, que es lo único que
             // dice dónde va cada una; hay que reapuntar sus enlaces al ZIP.
-            val body = relocateBodyPhotos(nwt.note.content, "body/$exportId")
+            val body = relocateBodyPhotos(
+                ensurePureMarkdown(nwt.note.content),
+                "body/$exportId",
+            )
             val bodyImagesJson = JSONArray()
             for (photo in body.photos) {
                 val zipPath = "body/$exportId/${photo.fileName}"

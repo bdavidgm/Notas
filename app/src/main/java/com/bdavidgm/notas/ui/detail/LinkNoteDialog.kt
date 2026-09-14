@@ -20,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,7 +28,9 @@ import com.bdavidgm.notas.R
 import com.bdavidgm.notas.data.NoteLinkCandidate
 import com.bdavidgm.notas.ui.theme.Celeste
 import com.bdavidgm.notas.ui.theme.NegroTexto
+import com.bdavidgm.notas.ui.util.NOTE_LINK_BOUNDARY
 import com.bdavidgm.notas.ui.util.noteLinkUrl
+import com.mohamedrejeb.richeditor.model.RichSpanStyle
 import com.mohamedrejeb.richeditor.model.RichTextState
 
 /**
@@ -125,10 +128,19 @@ private fun insertNoteLink(
     fallbackTitle: String,
 ) {
     val url = noteLinkUrl(candidate.uid)
-    val title = candidate.title.ifBlank { fallbackTitle }
-    if (state.selection.collapsed) {
-        state.addLink(text = title, url = url)
-    } else {
-        state.addLinkToSelection(url = url)
-    }
+    val selectedText = state.annotatedString.text
+        .substring(state.selection.min, state.selection.max)
+    val visibleText = selectedText.ifBlank { candidate.title.ifBlank { fallbackTitle } }
+
+    // Se añade el límite dentro del enlace y después se le retira el estilo.
+    // Así nunca insertamos texto directamente en el borde problemático del link.
+    if (!state.selection.collapsed) state.removeSelectedText()
+    state.addLink(text = visibleText + NOTE_LINK_BOUNDARY, url = url)
+    val boundaryEnd = state.selection.min
+    val boundaryRange = TextRange(boundaryEnd - 1, boundaryEnd)
+    state.removeRichSpan(
+        spanStyle = RichSpanStyle.Link(url),
+        textRange = boundaryRange,
+    )
+    state.selection = TextRange(boundaryEnd)
 }

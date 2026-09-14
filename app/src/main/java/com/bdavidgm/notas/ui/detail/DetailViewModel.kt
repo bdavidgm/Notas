@@ -129,6 +129,9 @@ class DetailViewModel(
 
     fun setEditing(value: Boolean) {
         if (!value && _isEditing.value) {
+            // Incluye la serialización viva y ya normalizada del rich editor;
+            // no dependemos de que haya vencido el debounce de escritura.
+            syncDraftContentFromEditor()
             viewModelScope.launch {
                 repository.persistDraftIfChanged(
                     noteId = noteId,
@@ -144,6 +147,7 @@ class DetailViewModel(
 
     suspend fun saveDraftIfEditing() {
         if (!_isEditing.value) return
+        syncDraftContentFromEditor()
         repository.persistDraftIfChanged(
             noteId = noteId,
             title = _draftTitle.value,
