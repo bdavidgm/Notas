@@ -10,6 +10,7 @@ import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.buildNoteExportDocument
 import com.bdavidgm.notas.ui.util.buildNoteExportPackage
 import com.bdavidgm.notas.ui.util.hasExportablePhotos
+import com.bdavidgm.notas.ui.util.stripInternalNoteLinks
 import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
 import com.bdavidgm.notas.ui.util.suggestedNotePhotosFolderName
 import kotlinx.coroutines.FlowPreview
@@ -23,10 +24,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import com.bdavidgm.notas.data.NoteLinkCandidate
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 /** Carpeta de fotos dentro del ZIP de una nota. */
 private const val ZIP_PHOTOS_FOLDER = "imagenes"
@@ -41,7 +45,11 @@ sealed interface NotePhotoFeedback {
     data object NoCamera : NotePhotoFeedback
 }
 
-@OptIn(FlowPreview::class)
+sealed interface NoteLinkFeedback {
+    data object Missing : NoteLinkFeedback
+}
+
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class DetailViewModel(
     private val noteId: Long,
     private val repository: NotasRepository,
@@ -64,6 +72,22 @@ class DetailViewModel(
 
     private val _photoFeedback = Channel<NotePhotoFeedback>(Channel.BUFFERED)
     val photoFeedback = _photoFeedback.receiveAsFlow()
+
+    private val _linkFeedback = Channel<NoteLinkFeedback>(Channel.BUFFERED)
+    val linkFeedback = _linkFeedback.receiveAsFlow()
+
+    private val _navigateToNote = Channel<Long>(Channel.BUFFERED)
+    val navigateToNote = _navigateToNote.receiveAsFlow()
+
+    private val _linkSearch = MutableStateFlow("")
+    val linkSearch: StateFlow<String> = _linkSearch.asStateFlow()
+
+    val linkCandidates: StateFlow<List<NoteLinkCandidate>> = _linkSearch
+        .debounce(300)
+        .flatMapLatest { query ->
+            repository.observeNotesForLink(query, excludeNoteId = noteId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val noteWithTags = repository.observeNoteWithTags(noteId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -215,13 +239,37 @@ class DetailViewModel(
         viewModelScope.launch { _photoFeedback.send(NotePhotoFeedback.NoCamera) }
     }
 
+    fun setLinkSearch(query: String) {
+        _linkSearch.value = query
+    }
+
+    fun clearLinkSearch() {
+        _linkSearch.value = ""
+    }
+
+    /**
+     * Toque en un enlace interno en la vista de lectura: navega a la nota o
+     * avisa si ya no existe.
+     */
+    fun followNoteLink(uid: String) {
+        viewModelScope.launch {
+            val targetId = repository.getNoteIdByUid(uid)
+            if (targetId == null) {
+                _linkFeedback.send(NoteLinkFeedback.Missing)
+                return@launch
+            }
+            if (targetId == noteId) return@launch
+            _navigateToNote.send(targetId)
+        }
+    }
+
     /** ¿La nota lleva fotos que haya que empaquetar al exportar? */
     fun currentBodyHasPhotos(): Boolean {
         syncDraftContentFromEditor()
         return hasExportablePhotos(_draftContent.value)
     }
 
-    /** Solo texto: los enlaces de foto se quedan como están. */
+    /** Solo texto: fotos como url; enlaces internos aplanados al texto visible. */
     fun exportNote(destinationUri: Uri, format: NoteExportFormat) {
         viewModelScope.launch {
             runExport {
@@ -232,7 +280,7 @@ class DetailViewModel(
                         title = data.title,
                         createdAtMillis = data.createdAtMillis,
                         updatedAtMillis = data.updatedAtMillis,
-                        content = data.content,
+                        content = stripInternalNoteLinks(data.content),
                         tagNames = data.tagNames,
                         format = format,
                     ),

@@ -9,6 +9,13 @@ data class NoteWithTags(
     val tags: List<TagEntity>,
 )
 
+/** Resumen para el diálogo de enlazar nota (sin cargar el cuerpo entero). */
+data class NoteLinkCandidate(
+    val id: Long,
+    val uid: String,
+    val title: String,
+)
+
 internal fun List<NoteTagJoinRow>.toNoteWithTagsList(): List<NoteWithTags> {
     if (isEmpty()) return emptyList()
     return groupBy { it.noteId }
@@ -18,6 +25,7 @@ internal fun List<NoteTagJoinRow>.toNoteWithTagsList(): List<NoteWithTags> {
             val r0 = rows.first()
             val note = NoteEntity(
                 id = r0.noteId,
+                uid = r0.uid,
                 title = r0.title,
                 content = r0.content,
                 createdAtMillis = r0.createdAtMillis,

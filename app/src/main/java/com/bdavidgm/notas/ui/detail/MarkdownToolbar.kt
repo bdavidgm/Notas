@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.NoteAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,12 +72,14 @@ fun ContentModeSelector(
 
 /**
  * [state] es el bloque de texto con el foco: hasta que el usuario toca uno, los
- * botones de formato no tienen sobre qué actuar (el de la foto sí).
+ * botones de formato no tienen sobre qué actuar (el de la foto sí; el de enlace
+ * a nota también exige un bloque enfocado).
  */
 @Composable
 fun RichMarkdownFormatToolbar(
     state: RichTextState?,
     onInsertPhoto: () -> Unit,
+    onInsertNoteLink: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showLinkDialog by remember { mutableStateOf(false) }
@@ -143,6 +146,11 @@ fun RichMarkdownFormatToolbar(
                 imageVector = Icons.Filled.Link,
                 contentDescription = stringResource(R.string.cd_format_link),
                 onClick = { if (state != null) showLinkDialog = true },
+            )
+            FormatIconButton(
+                imageVector = Icons.Filled.NoteAlt,
+                contentDescription = stringResource(R.string.cd_format_note_link),
+                onClick = { if (state != null) onInsertNoteLink() },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.AddAPhoto,

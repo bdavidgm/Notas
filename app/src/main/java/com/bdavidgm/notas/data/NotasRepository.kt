@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import com.bdavidgm.notas.data.local.NoteEntity
 import com.bdavidgm.notas.data.local.NoteImageEntity
+import com.bdavidgm.notas.data.local.NoteLinkCrossRef
 import com.bdavidgm.notas.data.local.NoteTagCrossRef
 import com.bdavidgm.notas.data.local.NotasDao
 import com.bdavidgm.notas.data.local.TagEntity
@@ -28,8 +29,10 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import com.bdavidgm.notas.ui.util.NoteExportPhoto
+import com.bdavidgm.notas.ui.util.extractNoteLinkUids
 import com.bdavidgm.notas.ui.util.parsePlainNoteDocument
 import com.bdavidgm.notas.ui.util.relocateBodyPhotos
+import com.bdavidgm.notas.ui.util.remapNoteLinkUids
 
 class NotasRepository(
     private val dao: NotasDao,
@@ -44,10 +47,22 @@ class NotasRepository(
 
     fun observeAllTags(): Flow<List<TagEntity>> = dao.observeAllTags()
 
+    /** Notas candidatas para el diálogo de enlace interno (excluye [excludeNoteId]). */
+    fun observeNotesForLink(query: String, excludeNoteId: Long): Flow<List<NoteLinkCandidate>> =
+        dao.observeNotesForLink(
+            searchPattern = likePattern(query),
+            excludeNoteId = excludeNoteId,
+        ).map { rows ->
+            rows.map { NoteLinkCandidate(id = it.id, uid = it.uid, title = it.title) }
+        }
+
+    suspend fun getNoteIdByUid(uid: String): Long? = dao.getNoteIdByUid(uid)
+
     suspend fun createBlankNote(): Long {
         val now = System.currentTimeMillis()
         return dao.insertNote(
             NoteEntity(
+                uid = newNoteUid(),
                 title = "",
                 content = "",
                 createdAtMillis = now,
@@ -75,6 +90,7 @@ class NotasRepository(
         val updated = parsed.updatedAtMillis ?: now
         val noteId = dao.insertNote(
             NoteEntity(
+                uid = newNoteUid(),
                 title = parsed.title.trimEnd(),
                 content = parsed.content,
                 createdAtMillis = created,
@@ -84,6 +100,7 @@ class NotasRepository(
         for (tagName in parsed.tagNames) {
             addTagToNote(noteId, tagName)
         }
+        syncNoteLinks(noteId, parsed.content)
         noteId
     }
 
@@ -115,7 +132,18 @@ class NotasRepository(
                 updatedAtMillis = System.currentTimeMillis(),
             ),
         )
+        syncNoteLinks(noteId, content)
     }
+
+    /** Reescribe la tabla note_links a partir de los `notas://` del cuerpo. */
+    private suspend fun syncNoteLinks(noteId: Long, content: String) {
+        dao.deleteNoteLinksForSource(noteId)
+        for (uid in extractNoteLinkUids(content)) {
+            dao.insertNoteLink(NoteLinkCrossRef(sourceNoteId = noteId, targetUid = uid))
+        }
+    }
+
+    private fun newNoteUid(): String = UUID.randomUUID().toString()
 
     suspend fun deleteNote(noteId: Long) {
         val images = dao.observeImagesForNote(noteId).first()
@@ -355,7 +383,9 @@ class NotasRepository(
         val imageWrites = mutableListOf<Pair<String, File>>()
 
         for (nwt in notesWithTags) {
-            val exportId = UUID.randomUUID().toString()
+            // El uid estable viaja como exportId: al restaurar los enlaces internos
+            // siguen apuntando a la misma nota.
+            val exportId = nwt.note.uid.ifBlank { UUID.randomUUID().toString() }
             // Las fotos incrustadas se localizan por el texto, que es lo único que
             // dice dónde va cada una; hay que reapuntar sus enlaces al ZIP.
             val body = relocateBodyPhotos(nwt.note.content, "body/$exportId")
@@ -443,20 +473,59 @@ class NotasRepository(
             }
             val notesArr = root.optJSONArray("notes")
                 ?: throw IOException("El manifiesto no incluye la lista de notas.")
-            var imported = 0
+
+            // exportId del ZIP → uid real insertado (si chocaba, se regenera).
+            val uidMap = mutableMapOf<String, String>()
+            data class PendingNote(
+                val preferredUid: String,
+                val title: String,
+                val content: String,
+                val created: Long,
+                val updated: Long,
+                val json: JSONObject,
+            )
+
+            suspend fun allocateUid(preferred: String): String {
+                val taken = uidMap.values.toHashSet()
+                if (preferred !in taken && dao.getNoteIdByUid(preferred) == null) {
+                    return preferred
+                }
+                var candidate: String
+                do {
+                    candidate = UUID.randomUUID().toString()
+                } while (candidate in taken || dao.getNoteIdByUid(candidate) != null)
+                return candidate
+            }
+
+            val pending = mutableListOf<PendingNote>()
             for (i in 0 until notesArr.length()) {
                 val n = notesArr.getJSONObject(i)
-                val title = n.optString("title", "")
-                val content = n.optString("content", "")
-                val created = n.optLong("createdAtMillis", System.currentTimeMillis())
-                val updated = n.optLong("updatedAtMillis", created)
+                val preferred = n.optString("exportId", "").ifBlank { UUID.randomUUID().toString() }
+                val uid = allocateUid(preferred)
+                uidMap[preferred] = uid
+                pending += PendingNote(
+                    preferredUid = preferred,
+                    title = n.optString("title", ""),
+                    content = n.optString("content", ""),
+                    created = n.optLong("createdAtMillis", System.currentTimeMillis()),
+                    updated = n.optLong("updatedAtMillis", System.currentTimeMillis()),
+                    json = n,
+                )
+            }
+
+            var imported = 0
+            for (item in pending) {
+                val n = item.json
+                val uid = uidMap.getValue(item.preferredUid)
+                var content = remapNoteLinkUids(item.content, uidMap)
                 val noteId = dao.insertNote(
                     NoteEntity(
                         id = 0,
-                        title = title,
+                        uid = uid,
+                        title = item.title,
                         content = content,
-                        createdAtMillis = created,
-                        updatedAtMillis = updated,
+                        createdAtMillis = item.created,
+                        updatedAtMillis = item.updated,
                     ),
                 )
                 val tags = n.optJSONArray("tags")
@@ -473,7 +542,6 @@ class NotasRepository(
                 // enlaces relativos pasan a apuntar a la copia recién hecha.
                 val bodyImages = n.optJSONArray("bodyImages")
                 if (bodyImages != null && bodyImages.length() > 0) {
-                    var restoredContent = content
                     val dir = File(appContext.filesDir, "note_images/$noteId").apply { mkdirs() }
                     for (j in 0 until bodyImages.length()) {
                         val path = bodyImages.getString(j)
@@ -484,19 +552,18 @@ class NotasRepository(
                             dest.outputStream().use { out -> inp.copyTo(out) }
                         }
                         registerNoteBodyImage(noteId, dest)
-                        restoredContent = restoredContent.replace(path, "file://${dest.absolutePath}")
+                        content = content.replace(path, "file://${dest.absolutePath}")
                     }
-                    if (restoredContent != content) {
-                        dao.updateNote(
-                            NoteEntity(
-                                id = noteId,
-                                title = title,
-                                content = restoredContent,
-                                createdAtMillis = created,
-                                updatedAtMillis = updated,
-                            ),
-                        )
-                    }
+                    dao.updateNote(
+                        NoteEntity(
+                            id = noteId,
+                            uid = uid,
+                            title = item.title,
+                            content = content,
+                            createdAtMillis = item.created,
+                            updatedAtMillis = item.updated,
+                        ),
+                    )
                 }
 
                 val images = n.optJSONArray("images")
@@ -527,6 +594,7 @@ class NotasRepository(
                         )
                     }
                 }
+                syncNoteLinks(noteId, content)
                 imported++
             }
             imported

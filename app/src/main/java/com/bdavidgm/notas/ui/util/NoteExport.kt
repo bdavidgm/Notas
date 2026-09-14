@@ -44,7 +44,8 @@ fun buildNoteExportPackage(
     format: NoteExportFormat,
     photosFolderName: String,
 ): NoteExportPackage {
-    val relocated = relocateBodyPhotos(content, photosFolderName)
+    // fotos → rutas relativas; enlaces internos → solo el texto (no sirven fuera).
+    val relocated = relocateBodyPhotos(stripInternalNoteLinks(content), photosFolderName)
     return NoteExportPackage(
         document = buildNoteExportDocument(
             title = title,

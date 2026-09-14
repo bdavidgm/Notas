@@ -190,6 +190,9 @@ fun NotasNavHost(
                 DetailScreen(
                     viewModel = vm,
                     onNavigateBack = { navController.navigateUp() },
+                    onOpenNote = { id ->
+                        navController.navigate("detail/$id")
+                    },
                 )
             }
         }

@@ -8,6 +8,7 @@ import androidx.room.ColumnInfo
 data class NoteTagJoinRow(
     @ColumnInfo(name = "noteId")
     val noteId: Long,
+    val uid: String,
     val title: String,
     val content: String,
     val createdAtMillis: Long,

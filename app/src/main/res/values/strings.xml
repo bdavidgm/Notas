@@ -32,9 +32,14 @@
     <string name="cd_format_quote">Cita</string>
     <string name="cd_format_code">Código</string>
     <string name="cd_format_link">Enlace</string>
+    <string name="cd_format_note_link">Enlazar nota</string>
     <string name="dialog_link_title">Insertar enlace</string>
+    <string name="dialog_link_note_title">Enlazar nota</string>
     <string name="field_link_text">Texto</string>
     <string name="field_link_url">URL</string>
+    <string name="field_link_note_search">Buscar nota…</string>
+    <string name="link_note_empty">No hay notas que coincidan.</string>
+    <string name="snackbar_note_link_missing">La nota enlazada ya no existe.</string>
     <string name="action_insert">Insertar</string>
     <string name="markdown_placeholder_bold">negrita</string>
     <string name="markdown_placeholder_italic">cursiva</string>

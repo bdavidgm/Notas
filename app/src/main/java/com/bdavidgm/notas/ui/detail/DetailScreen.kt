@@ -107,6 +107,7 @@ private fun String.toExportFormat(): NoteExportFormat? =
 fun DetailScreen(
     viewModel: DetailViewModel,
     onNavigateBack: () -> Unit,
+    onOpenNote: (Long) -> Unit,
 ) {
     val nwt by viewModel.noteWithTags.collectAsStateWithLifecycle()
     val isEditing by viewModel.isEditing.collectAsStateWithLifecycle()
@@ -173,6 +174,20 @@ fun DetailScreen(
                 NoteExportFeedback.Fail -> context.getString(R.string.snackbar_note_export_error)
             }
             snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.linkFeedback.collect {
+            snackbarHostState.showSnackbar(
+                context.getString(R.string.snackbar_note_link_missing),
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.navigateToNote.collect { targetId ->
+            onOpenNote(targetId)
         }
     }
 
@@ -781,6 +796,7 @@ private fun ReadOnlyNoteBody(viewModel: DetailViewModel) {
     val draftTitle by viewModel.draftTitle.collectAsStateWithLifecycle()
     val draftContent by viewModel.draftContent.collectAsStateWithLifecycle()
     val contentMode by viewModel.contentDisplayMode.collectAsStateWithLifecycle()
+    val followLink = remember(viewModel) { viewModel::followNoteLink }
 
     Text(
         text = draftTitle.ifBlank { stringResource(R.string.untitled_note) },
@@ -795,7 +811,10 @@ private fun ReadOnlyNoteBody(viewModel: DetailViewModel) {
             )
         }
         ContentDisplayMode.MD -> {
-            ReadOnlyRichMarkdownBody(markdown = draftContent)
+            ReadOnlyRichMarkdownBody(
+                markdown = draftContent,
+                onNoteLink = followLink,
+            )
         }
     }
 }

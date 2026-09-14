@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +47,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
@@ -54,6 +57,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.ui.theme.NegroTexto
+import com.bdavidgm.notas.ui.util.parseNoteLinkUid
 import com.mohamedrejeb.richeditor.model.RichTextState
 import com.mohamedrejeb.richeditor.ui.BasicRichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichText
@@ -224,6 +228,7 @@ internal fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showPhotoDialog by remember { mutableStateOf(false) }
+    var noteLinkState by remember { mutableStateOf<RichTextState?>(null) }
     var cameraTarget by remember { mutableStateOf<File?>(null) }
 
     val insertPhoto: (String) -> Unit = { path ->
@@ -306,7 +311,16 @@ internal fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
     RichMarkdownFormatToolbar(
         state = activeState,
         onInsertPhoto = { showPhotoDialog = true },
+        onInsertNoteLink = { activeState?.let { noteLinkState = it } },
     )
+
+    noteLinkState?.let { state ->
+        LinkNoteDialog(
+            viewModel = viewModel,
+            state = state,
+            onDismiss = { noteLinkState = null },
+        )
+    }
 
     Spacer(Modifier.height(8.dp))
     Text(
@@ -464,9 +478,15 @@ private fun BodyTextBlock(
  * con tamaño 0×0 y solo lo ajusta en un `LaunchedEffect` que se dispara antes de
  * que Coil acabe de decodificar, así que la foto nunca se veía. Se pintan los
  * mismos bloques que en edición: texto con la librería y fotos con Coil.
+ *
+ * Los toques en enlaces pasan por [LocalUriHandler]: los `notas://` los captura
+ * [onNoteLink]; el resto sigue al handler de plataforma.
  */
 @Composable
-internal fun ReadOnlyRichMarkdownBody(markdown: String) {
+internal fun ReadOnlyRichMarkdownBody(
+    markdown: String,
+    onNoteLink: (uid: String) -> Unit = {},
+) {
     if (markdown.isBlank()) {
         Text(
             text = stringResource(R.string.empty_body_hint),
@@ -481,14 +501,26 @@ internal fun ReadOnlyRichMarkdownBody(markdown: String) {
         parseBodyBlocks(markdown) { ++lastId }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        blocks.forEach { block ->
-            key(block.id) {
-                when (block) {
-                    is BodyBlock.Text ->
-                        if (block.markdown.isNotBlank()) ReadOnlyTextBlock(block.markdown)
+    val platformUriHandler = LocalUriHandler.current
+    val uriHandler = remember(platformUriHandler, onNoteLink) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                val uid = parseNoteLinkUid(uri)
+                if (uid != null) onNoteLink(uid) else platformUriHandler.openUri(uri)
+            }
+        }
+    }
 
-                    is BodyBlock.Photo -> BodyPhotoBlock(photo = block, onRemove = null)
+    CompositionLocalProvider(LocalUriHandler provides uriHandler) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            blocks.forEach { block ->
+                key(block.id) {
+                    when (block) {
+                        is BodyBlock.Text ->
+                            if (block.markdown.isNotBlank()) ReadOnlyTextBlock(block.markdown)
+
+                        is BodyBlock.Photo -> BodyPhotoBlock(photo = block, onRemove = null)
+                    }
                 }
             }
         }

@@ -12,7 +12,7 @@ interface NotasDao {
 
     @Query(
         """
-        SELECT n.id AS noteId, n.title AS title, n.content AS content,
+        SELECT n.id AS noteId, n.uid AS uid, n.title AS title, n.content AS content,
                n.createdAtMillis AS createdAtMillis, n.updatedAtMillis AS updatedAtMillis,
                IFNULL(t.id, -1) AS tagId, IFNULL(t.name, '') AS tagName
         FROM notes n
@@ -26,7 +26,7 @@ interface NotasDao {
 
     @Query(
         """
-        SELECT n.id AS noteId, n.title AS title, n.content AS content,
+        SELECT n.id AS noteId, n.uid AS uid, n.title AS title, n.content AS content,
                n.createdAtMillis AS createdAtMillis, n.updatedAtMillis AS updatedAtMillis,
                IFNULL(t.id, -1) AS tagId, IFNULL(t.name, '') AS tagName
         FROM notes n
@@ -40,6 +40,30 @@ interface NotasDao {
 
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun getNote(id: Long): NoteEntity?
+
+    @Query("SELECT id FROM notes WHERE uid = :uid LIMIT 1")
+    suspend fun getNoteIdByUid(uid: String): Long?
+
+    @Query("SELECT uid FROM notes WHERE id = :id LIMIT 1")
+    suspend fun getNoteUid(id: Long): String?
+
+    /**
+     * Candidatas para enlazar: título/contenido que coincidan, excluyendo la nota
+     * actual. El diálogo solo necesita id, uid y título.
+     */
+    @Query(
+        """
+        SELECT id, uid, title FROM notes
+        WHERE id != :excludeNoteId
+          AND (title LIKE :searchPattern OR content LIKE :searchPattern)
+        ORDER BY updatedAtMillis DESC
+        LIMIT 40
+        """,
+    )
+    fun observeNotesForLink(
+        searchPattern: String,
+        excludeNoteId: Long,
+    ): Flow<List<NoteLinkCandidateRow>>
 
     @Insert
     suspend fun insertNote(note: NoteEntity): Long
@@ -83,7 +107,7 @@ interface NotasDao {
 
     @Query(
         """
-        SELECT n.id AS noteId, n.title AS title, n.content AS content,
+        SELECT n.id AS noteId, n.uid AS uid, n.title AS title, n.content AS content,
                n.createdAtMillis AS createdAtMillis, n.updatedAtMillis AS updatedAtMillis,
                IFNULL(t.id, -1) AS tagId, IFNULL(t.name, '') AS tagName
         FROM notes n
@@ -93,4 +117,10 @@ interface NotasDao {
         """,
     )
     suspend fun getAllNoteTagRowsForExport(): List<NoteTagJoinRow>
+
+    @Query("DELETE FROM note_links WHERE sourceNoteId = :sourceNoteId")
+    suspend fun deleteNoteLinksForSource(sourceNoteId: Long): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNoteLink(link: NoteLinkCrossRef): Long
 }
