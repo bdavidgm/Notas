@@ -45,7 +45,7 @@
     <string name="section_tags">Etiquetas</string>
     <string name="field_new_tag">Escribir etiqueta</string>
     <string name="action_add_tag">Añadir</string>
-    <string name="action_select_tag">Seleccionar</string>
+    <string name="action_select_tag">Añadir a la nota</string>
     <string name="action_apply_tags">Aplicar</string>
     <string name="action_manage_tags_menu">Gestionar etiquetas</string>
     <string name="manage_tags_title">Gestionar etiquetas</string>

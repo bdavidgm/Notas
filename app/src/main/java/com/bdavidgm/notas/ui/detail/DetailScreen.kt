@@ -9,7 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,13 +19,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.relocation.BringIntoViewResponder
 import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -60,12 +60,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -843,8 +843,12 @@ private fun ManageTagsList(
         pendingTagNames.map { it.lowercase(Locale.getDefault()) }.toSet()
     }
     val trimmedQuery = query.trim()
-    val availableTags = remember(allTags, noteTagIds) {
-        allTags.filter { it.id !in noteTagIds }
+    // Las pendientes se muestran arriba, en "En esta nota", así que salen de aquí.
+    val availableTags = remember(allTags, noteTagIds, pendingLower) {
+        allTags.filter { tag ->
+            tag.id !in noteTagIds &&
+                tag.name.lowercase(Locale.getDefault()) !in pendingLower
+        }
     }
     val suggestions = remember(availableTags, trimmedQuery) {
         availableTags.filter { tag ->
@@ -874,16 +878,6 @@ private fun ManageTagsList(
         modifier = modifier,
         contentPadding = PaddingValues(vertical = 12.dp),
     ) {
-        if (pendingTagNames.isNotEmpty()) {
-            item(key = "pending") {
-                PendingTagsWrap(
-                    tags = pendingTagNames,
-                    onRemove = togglePendingName,
-                )
-                Spacer(Modifier.height(12.dp))
-            }
-        }
-
         item(key = "input") {
             ManageTagsQueryField(
                 query = query,
@@ -903,7 +897,7 @@ private fun ManageTagsList(
                 color = NegroTexto,
             )
             Spacer(Modifier.height(8.dp))
-            if (noteTags.isEmpty()) {
+            if (noteTags.isEmpty() && pendingTagNames.isEmpty()) {
                 Text(
                     text = stringResource(R.string.manage_tags_on_note_empty),
                     style = MaterialTheme.typography.bodyMedium,
@@ -917,6 +911,17 @@ private fun ManageTagsList(
             ManageNoteTagRow(
                 tag = tag,
                 onRemoveNoteTag = onRemoveNoteTag,
+            )
+        }
+
+        // Pendientes de aplicar: ya se ven aquí, pero no se guardan hasta "Aplicar".
+        items(
+            pendingTagNames,
+            key = { "pending-${it.lowercase(Locale.getDefault())}" },
+        ) { name ->
+            ManagePendingTagRow(
+                name = name,
+                onRemovePending = togglePendingName,
             )
         }
 
@@ -950,7 +955,6 @@ private fun ManageTagsList(
             items(suggestions, key = { "avail-${it.id}" }) { tag ->
                 ManageAvailableTagRow(
                     tag = tag,
-                    checked = pendingLower.contains(tag.name.lowercase(Locale.getDefault())),
                     onToggle = togglePendingName,
                 )
             }
@@ -971,6 +975,10 @@ private fun ManageTagsQueryField(
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         label = { Text(stringResource(R.string.field_new_tag)) },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(
+            onDone = { if (canSelectTyped) onSelectTyped() },
+        ),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Celeste,
             unfocusedBorderColor = Celeste,
@@ -1002,15 +1010,29 @@ private fun ManageNoteTagRow(
     )
 }
 
+/** Etiqueta escrita o elegida que se guardará al pulsar "Aplicar". */
+@Composable
+private fun ManagePendingTagRow(
+    name: String,
+    onRemovePending: (String) -> Unit,
+) {
+    ManageTagCheckRow(
+        name = name,
+        checked = true,
+        onClick = { onRemovePending(name) },
+        contentDescription = stringResource(R.string.cd_remove_pending_tag),
+    )
+}
+
+/** Etiqueta no asociada: marcarla la pasa a pendiente, arriba. */
 @Composable
 private fun ManageAvailableTagRow(
     tag: TagEntity,
-    checked: Boolean,
     onToggle: (String) -> Unit,
 ) {
     ManageTagCheckRow(
         name = tag.name,
-        checked = checked,
+        checked = false,
         onClick = { onToggle(tag.name) },
     )
 }
@@ -1043,91 +1065,6 @@ private fun ManageTagCheckRow(
         )
     }
     HorizontalDivider()
-}
-
-@Composable
-private fun PendingTagsWrap(
-    tags: List<String>,
-    onRemove: (String) -> Unit,
-) {
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val chipMaxWidth = maxWidth
-        Layout(
-            content = {
-                tags.forEach { name ->
-                    Surface(
-                        color = Celeste,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.widthIn(max = chipMaxWidth),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(
-                                start = 10.dp,
-                                end = 2.dp,
-                                top = 2.dp,
-                                bottom = 2.dp,
-                            ),
-                        ) {
-                            Text(
-                                text = name,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = NegroTexto,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            IconButton(
-                                onClick = { onRemove(name) },
-                                modifier = Modifier.size(28.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = stringResource(R.string.cd_remove_pending_tag),
-                                    tint = NegroTexto,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-        ) { measurables, constraints ->
-            val hGap = 8.dp.roundToPx()
-            val vGap = 8.dp.roundToPx()
-            val maxW = constraints.maxWidth
-            val placeables = measurables.map { measurable ->
-                measurable.measure(
-                    constraints.copy(
-                        minWidth = 0,
-                        maxWidth = maxW.coerceAtLeast(0),
-                    ),
-                )
-            }
-            var x = 0
-            var y = 0
-            var rowHeight = 0
-            var totalHeight = 0
-            val positions = ArrayList<Pair<Int, Int>>(placeables.size)
-            placeables.forEach { placeable ->
-                if (x > 0 && x + placeable.width > maxW) {
-                    x = 0
-                    y += rowHeight + vGap
-                    rowHeight = 0
-                }
-                positions.add(x to y)
-                rowHeight = maxOf(rowHeight, placeable.height)
-                x += placeable.width + hGap
-                totalHeight = maxOf(totalHeight, y + rowHeight)
-            }
-            layout(maxW.coerceAtLeast(constraints.minWidth), totalHeight) {
-                placeables.forEachIndexed { index, placeable ->
-                    val (px, py) = positions[index]
-                    placeable.placeRelative(px, py)
-                }
-            }
-        }
-    }
 }
 
 @Composable
