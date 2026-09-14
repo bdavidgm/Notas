@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -131,18 +132,18 @@ private fun TagCloudChip(
             color = NegroTexto,
         )
         Spacer(Modifier.width(8.dp))
-        TagCountBadge(count = tag.noteCount, selected = tag.selected)
+        TagCountBadge(count = tag.noteCount)
     }
 }
 
 /** Círculo con el número de notas que usan la etiqueta. */
 @Composable
-private fun TagCountBadge(count: Int, selected: Boolean) {
+private fun TagCountBadge(count: Int) {
     Box(
         modifier = Modifier
             .size(24.dp)
             .background(
-                color = if (selected) CelesteClaro else CelesteOscuro,
+                color = Color.White,
                 shape = CircleShape,
             ),
         contentAlignment = Alignment.Center,

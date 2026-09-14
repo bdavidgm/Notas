@@ -87,6 +87,7 @@
     <string name="action_export_files">Archivos sueltos en una carpeta</string>
     <string name="snackbar_note_export_ok">Nota exportada.</string>
     <string name="snackbar_note_export_error">No se pudo exportar la nota.</string>
+    <string name="snackbar_no_document_picker">No hay ninguna aplicación para guardar el archivo.</string>
     <string name="action_import">Importar copia</string>
     <string name="action_open_document">Abrir .txt / .md</string>
     <string name="snackbar_export_ok">Copia de seguridad exportada.</string>

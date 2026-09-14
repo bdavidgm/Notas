@@ -224,8 +224,13 @@ class NotasRepository(
         photos: List<NoteExportPhoto>,
     ) {
         withContext(Dispatchers.IO) {
-            val out = appContext.contentResolver.openOutputStream(destinationUri)
-                ?: throw IOException("No se pudo escribir en el destino elegido.")
+            // "wt" (API 26+) trunca si el destino ya existía; sin eso un ZIP a
+            // medias puede quedar con basura de una escritura anterior.
+            val out = if (android.os.Build.VERSION.SDK_INT >= 26) {
+                appContext.contentResolver.openOutputStream(destinationUri, "wt")
+            } else {
+                appContext.contentResolver.openOutputStream(destinationUri)
+            } ?: throw IOException("No se pudo escribir en el destino elegido.")
             ZipOutputStream(BufferedOutputStream(out)).use { zos ->
                 zos.putNextEntry(ZipEntry(documentName))
                 zos.write(document.toByteArray(StandardCharsets.UTF_8))
@@ -236,6 +241,7 @@ class NotasRepository(
                     photo.source.inputStream().use { input -> input.copyTo(zos) }
                     zos.closeEntry()
                 }
+                zos.finish()
             }
         }
     }

@@ -282,7 +282,9 @@ class DetailViewModel(
         try {
             block()
             _exportFeedback.send(NoteExportFeedback.Ok)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // CancellationException no debe tragarse: el scope se cancela al salir.
+            if (e is kotlinx.coroutines.CancellationException) throw e
             _exportFeedback.send(NoteExportFeedback.Fail)
         }
     }

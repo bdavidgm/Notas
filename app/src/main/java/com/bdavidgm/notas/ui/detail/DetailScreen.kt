@@ -1,5 +1,6 @@
 package com.bdavidgm.notas.ui.detail
 
+import android.content.ActivityNotFoundException
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -51,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +75,7 @@ import com.bdavidgm.notas.ui.components.CelesteElevatedButton
 import com.bdavidgm.notas.ui.components.NotasScaffold
 import com.bdavidgm.notas.ui.components.TopBarTextButton
 import com.bdavidgm.notas.ui.theme.Celeste
+import com.bdavidgm.notas.ui.theme.CelesteOscuro
 import com.bdavidgm.notas.ui.theme.NegroTexto
 import com.bdavidgm.notas.ui.util.NoteCopyOptions
 import com.bdavidgm.notas.ui.util.NoteExportFormat
@@ -80,7 +84,11 @@ import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
 import com.bdavidgm.notas.ui.util.suggestedNoteExportZipFileName
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import java.util.Locale
+
+private fun String.toExportFormat(): NoteExportFormat? =
+    runCatching { NoteExportFormat.valueOf(this) }.getOrNull()
 
 @Composable
 fun DetailScreen(
@@ -99,8 +107,41 @@ fun DetailScreen(
     var showCopyDialog by remember { mutableStateOf(false) }
     var showManageTags by remember { mutableStateOf(false) }
     var copyOptions by remember { mutableStateOf(NoteCopyOptions()) }
-    var pendingExportFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
-    var packagingFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
+    // rememberSaveable: al abrir el selector el proceso puede morir y, sin esto,
+    // al volver pendingExportFormat sería null y la exportación no arrancaría.
+    var pendingExportFormat by rememberSaveable { mutableStateOf<String?>(null) }
+    var packagingFormat by rememberSaveable { mutableStateOf<String?>(null) }
+
+    fun launchCreateDocument(
+        launcher: androidx.activity.result.ActivityResultLauncher<String>,
+        fileName: String,
+    ) {
+        try {
+            launcher.launch(fileName)
+        } catch (_: ActivityNotFoundException) {
+            pendingExportFormat = null
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.snackbar_no_document_picker),
+                )
+            }
+        }
+    }
+
+    fun launchOpenTree(
+        launcher: androidx.activity.result.ActivityResultLauncher<android.net.Uri?>,
+    ) {
+        try {
+            launcher.launch(null)
+        } catch (_: ActivityNotFoundException) {
+            pendingExportFormat = null
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    context.getString(R.string.snackbar_no_document_picker),
+                )
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.photoFeedback.collect { feedback ->
@@ -125,7 +166,7 @@ fun DetailScreen(
     val exportTxtLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument(NoteExportFormat.TXT.mimeType),
     ) { uri ->
-        val format = pendingExportFormat
+        val format = pendingExportFormat?.toExportFormat()
         pendingExportFormat = null
         if (uri != null && format == NoteExportFormat.TXT) {
             viewModel.exportNote(uri, NoteExportFormat.TXT)
@@ -133,9 +174,10 @@ fun DetailScreen(
     }
 
     val exportMdLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument(NoteExportFormat.MD.mimeType),
+        // text/markdown falla en varios selectores; el nombre .md basta.
+        contract = ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
-        val format = pendingExportFormat
+        val format = pendingExportFormat?.toExportFormat()
         pendingExportFormat = null
         if (uri != null && format == NoteExportFormat.MD) {
             viewModel.exportNote(uri, NoteExportFormat.MD)
@@ -143,9 +185,11 @@ fun DetailScreen(
     }
 
     val exportZipLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/zip"),
+        // application/zip tumba el selector en algunos Xiaomi; */* + nombre .zip
+        // es lo que SAF acepta de forma fiable.
+        contract = ActivityResultContracts.CreateDocument("*/*"),
     ) { uri ->
-        val format = pendingExportFormat
+        val format = pendingExportFormat?.toExportFormat()
         pendingExportFormat = null
         if (uri != null && format != null) {
             viewModel.exportNoteAsZip(uri, format)
@@ -155,7 +199,7 @@ fun DetailScreen(
     val exportFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { treeUri ->
-        val format = pendingExportFormat
+        val format = pendingExportFormat?.toExportFormat()
         pendingExportFormat = null
         if (treeUri != null && format != null) {
             viewModel.exportNoteToFolder(treeUri, format)
@@ -193,6 +237,7 @@ fun DetailScreen(
     }
 
     if (showExportDialog) {
+        val dialogActionColors = ButtonDefaults.textButtonColors(contentColor = CelesteOscuro)
         AlertDialog(
             onDismissRequest = { showExportDialog = false },
             title = { Text(stringResource(R.string.dialog_export_note_title)) },
@@ -204,10 +249,11 @@ fun DetailScreen(
                             // Con fotos hay que preguntar antes cómo empaquetarlas;
                             // el .txt/.md a secas se llevaría enlaces rotos.
                             if (viewModel.currentBodyHasPhotos()) {
-                                packagingFormat = NoteExportFormat.TXT
+                                packagingFormat = NoteExportFormat.TXT.name
                             } else {
-                                pendingExportFormat = NoteExportFormat.TXT
-                                exportTxtLauncher.launch(
+                                pendingExportFormat = NoteExportFormat.TXT.name
+                                launchCreateDocument(
+                                    exportTxtLauncher,
                                     suggestedNoteExportFileName(
                                         viewModel.draftTitle.value,
                                         NoteExportFormat.TXT,
@@ -215,6 +261,7 @@ fun DetailScreen(
                                 )
                             }
                         },
+                        colors = dialogActionColors,
                     ) {
                         Text(stringResource(R.string.action_export_txt))
                     }
@@ -222,10 +269,11 @@ fun DetailScreen(
                         onClick = {
                             showExportDialog = false
                             if (viewModel.currentBodyHasPhotos()) {
-                                packagingFormat = NoteExportFormat.MD
+                                packagingFormat = NoteExportFormat.MD.name
                             } else {
-                                pendingExportFormat = NoteExportFormat.MD
-                                exportMdLauncher.launch(
+                                pendingExportFormat = NoteExportFormat.MD.name
+                                launchCreateDocument(
+                                    exportMdLauncher,
                                     suggestedNoteExportFileName(
                                         viewModel.draftTitle.value,
                                         NoteExportFormat.MD,
@@ -233,6 +281,7 @@ fun DetailScreen(
                                 )
                             }
                         },
+                        colors = dialogActionColors,
                     ) {
                         Text(stringResource(R.string.action_export_md))
                     }
@@ -240,26 +289,38 @@ fun DetailScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showExportDialog = false }) {
+                TextButton(
+                    onClick = { showExportDialog = false },
+                    colors = dialogActionColors,
+                ) {
                     Text(stringResource(R.string.action_cancel))
                 }
             },
         )
     }
 
-    packagingFormat?.let { format ->
+    packagingFormat?.toExportFormat()?.let { format ->
         ExportPackagingDialog(
             onZip = {
                 packagingFormat = null
-                pendingExportFormat = format
-                exportZipLauncher.launch(
-                    suggestedNoteExportZipFileName(viewModel.draftTitle.value),
-                )
+                pendingExportFormat = format.name
+                // Tras cerrar el diálogo, el siguiente frame evita choques con el
+                // selector de documentos en algunos fabricantes (p. ej. Xiaomi).
+                scope.launch {
+                    yield()
+                    launchCreateDocument(
+                        exportZipLauncher,
+                        suggestedNoteExportZipFileName(viewModel.draftTitle.value),
+                    )
+                }
             },
             onFiles = {
                 packagingFormat = null
-                pendingExportFormat = format
-                exportFolderLauncher.launch(null)
+                pendingExportFormat = format.name
+                scope.launch {
+                    yield()
+                    launchOpenTree(exportFolderLauncher)
+                }
             },
             onDismiss = { packagingFormat = null },
         )
@@ -470,12 +531,14 @@ private fun DetailNoteBody(
             ReadOnlyNoteBody(viewModel)
         }
 
-        Spacer(Modifier.height(20.dp))
-        DetailTagsSection(
-            tags = tags,
-            isEditing = isEditing,
-            onRemoveTag = removeTag,
-        )
+        if (tags.isNotEmpty()) {
+            Spacer(Modifier.height(20.dp))
+            NoteTagsRow(
+                tags = tags,
+                isEditing = isEditing,
+                onRemoveTag = removeTag,
+            )
+        }
     }
 }
 
@@ -493,27 +556,6 @@ private fun Modifier.ignoreChildBringIntoView(): Modifier =
             }
         },
     )
-
-@Composable
-private fun DetailTagsSection(
-    tags: List<TagEntity>,
-    isEditing: Boolean,
-    onRemoveTag: (Long) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
-        Text(
-            text = stringResource(R.string.section_tags),
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Spacer(Modifier.height(8.dp))
-        NoteTagsRow(
-            tags = tags,
-            isEditing = isEditing,
-            onRemoveTag = onRemoveTag,
-        )
-    }
-}
 
 @Composable
 private fun DetailContentModeRow(viewModel: DetailViewModel) {
@@ -601,6 +643,7 @@ private fun ExportPackagingDialog(
     onFiles: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val dialogActionColors = ButtonDefaults.textButtonColors(contentColor = CelesteOscuro)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.dialog_export_photos_title)) },
@@ -611,12 +654,14 @@ private fun ExportPackagingDialog(
                 TextButton(
                     onClick = onZip,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = dialogActionColors,
                 ) {
                     Text(stringResource(R.string.action_export_zip))
                 }
                 TextButton(
                     onClick = onFiles,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = dialogActionColors,
                 ) {
                     Text(stringResource(R.string.action_export_files))
                 }
@@ -624,7 +669,10 @@ private fun ExportPackagingDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                colors = dialogActionColors,
+            ) {
                 Text(stringResource(R.string.action_cancel))
             }
         },
