@@ -1,13 +1,18 @@
 package com.bdavidgm.notas.ui.tagcloud
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedButton
@@ -33,7 +38,6 @@ import com.bdavidgm.notas.ui.theme.CelesteClaro
 import com.bdavidgm.notas.ui.theme.CelesteOscuro
 import com.bdavidgm.notas.ui.theme.NegroTexto
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 @Composable
 fun TagCloudScreen(
@@ -71,8 +75,6 @@ private fun TagCloudChipsPane(
 ) {
     val tags by viewModel.tags.collectAsStateWithLifecycle()
     val onToggle = remember(viewModel) { viewModel::toggleTag }
-    val minCount = tags.minOfOrNull { it.noteCount } ?: 1
-    val maxCount = tags.maxOfOrNull { it.noteCount } ?: 1
 
     Box(modifier = modifier) {
         if (tags.isEmpty()) {
@@ -96,8 +98,6 @@ private fun TagCloudChipsPane(
                 tags.forEach { tag ->
                     TagCloudChip(
                         tag = tag,
-                        minCount = minCount,
-                        maxCount = maxCount,
                         onToggle = onToggle,
                     )
                 }
@@ -109,17 +109,16 @@ private fun TagCloudChipsPane(
 @Composable
 private fun TagCloudChip(
     tag: TagCloudViewModel.TagCloudItem,
-    minCount: Int,
-    maxCount: Int,
     onToggle: (Long) -> Unit,
 ) {
-    val weight = tagSizeWeight(tag.noteCount, minCount, maxCount)
-    val fontSp = (13f + 15f * weight).sp
-    val hPad = (10 + (10 * weight).roundToInt()).dp
-    val vPad = (6 + (6 * weight).roundToInt()).dp
     ElevatedButton(
         onClick = { onToggle(tag.tagId) },
-        contentPadding = PaddingValues(horizontal = hPad, vertical = vPad),
+        contentPadding = PaddingValues(
+            start = 14.dp,
+            end = 8.dp,
+            top = 8.dp,
+            bottom = 8.dp,
+        ),
         colors = ButtonDefaults.elevatedButtonColors(
             containerColor = if (tag.selected) CelesteOscuro else CelesteClaro,
             contentColor = NegroTexto,
@@ -127,9 +126,33 @@ private fun TagCloudChip(
     ) {
         Text(
             text = tag.name,
-            fontSize = fontSp,
+            fontSize = 15.sp,
             fontWeight = if (tag.selected) FontWeight.Bold else FontWeight.Medium,
             color = NegroTexto,
+        )
+        Spacer(Modifier.width(8.dp))
+        TagCountBadge(count = tag.noteCount, selected = tag.selected)
+    }
+}
+
+/** Círculo con el número de notas que usan la etiqueta. */
+@Composable
+private fun TagCountBadge(count: Int, selected: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .background(
+                color = if (selected) CelesteClaro else CelesteOscuro,
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = count.toString(),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = NegroTexto,
+            maxLines = 1,
         )
     }
 }
@@ -221,9 +244,4 @@ private fun SimpleFlowRow(
             }
         }
     }
-}
-
-private fun tagSizeWeight(count: Int, minCount: Int, maxCount: Int): Float {
-    if (maxCount <= minCount) return 0.55f
-    return ((count - minCount).toFloat() / (maxCount - minCount).toFloat()).coerceIn(0f, 1f)
 }
