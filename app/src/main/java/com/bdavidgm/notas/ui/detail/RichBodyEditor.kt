@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -201,9 +202,16 @@ private class BodyBlocksState(initialMarkdown: String) {
 internal fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
     val body = remember(viewModel) { BodyBlocksState(viewModel.draftContent.value) }
     var lastPushed by remember(viewModel) { mutableStateOf(viewModel.draftContent.value) }
+    // userEdited se activa también al recibir el foco un bloque: desde ese momento
+    // el cursor es del usuario y ninguna recarga rehace los bloques bajo sus pies.
     var userEdited by remember(viewModel) { mutableStateOf(false) }
     var focusedTextId by remember { mutableStateOf<Long?>(null) }
-    var pendingFocusId by remember { mutableStateOf<Long?>(null) }
+    // Al abrir la edición el cursor se coloca en el primer carácter del cuerpo:
+    // el primer bloque siempre es de texto (parseBodyBlocks lo garantiza).
+    var pendingFocusId by remember {
+        val empty = body.blocks.all { it is BodyBlock.Text && it.markdown.isBlank() }
+        mutableStateOf(if (empty) null else body.blocks.firstOrNull()?.id)
+    }
     var activeState by remember { mutableStateOf<RichTextState?>(null) }
 
     val push = {
@@ -328,6 +336,7 @@ internal fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
                         onFocused = { state ->
                             focusedTextId = block.id
                             activeState = state
+                            userEdited = true
                         },
                         onRegisterHandle = { handle -> body.registerHandle(block.id, handle) },
                         onFlush = { markdown -> body.updateText(block.id, markdown) },
@@ -413,10 +422,16 @@ private fun BodyTextBlock(
     }
 
     LaunchedEffect(requestFocus) {
-        if (requestFocus) {
-            focusRequester.requestFocus()
-            onFocusHandled()
+        if (!requestFocus) return@LaunchedEffect
+        // El cursor entra al principio del bloque: al abrir la edición eso es el
+        // primer carácter de la nota y, tras insertar una foto, el hueco de abajo.
+        state.selection = TextRange.Zero
+        // En la primera composición el nodo puede no estar colocado todavía.
+        if (runCatching { focusRequester.requestFocus() }.isFailure) {
+            withFrameNanos { }
+            runCatching { focusRequester.requestFocus() }
         }
+        onFocusHandled()
     }
 
     BasicRichTextEditor(

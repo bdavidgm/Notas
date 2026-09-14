@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,13 +18,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.relocation.BringIntoViewResponder
 import androidx.compose.foundation.relocation.bringIntoViewResponder
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -55,11 +59,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
@@ -343,9 +356,14 @@ fun DetailScreen(
                         onCheckedChange = { copyOptions = copyOptions.copy(includeBody = it) },
                     )
                     CopyOptionRow(
-                        label = stringResource(R.string.copy_option_signature),
-                        checked = copyOptions.includeSignature,
-                        onCheckedChange = { copyOptions = copyOptions.copy(includeSignature = it) },
+                        label = stringResource(R.string.copy_option_created),
+                        checked = copyOptions.includeCreatedAt,
+                        onCheckedChange = { copyOptions = copyOptions.copy(includeCreatedAt = it) },
+                    )
+                    CopyOptionRow(
+                        label = stringResource(R.string.copy_option_updated),
+                        checked = copyOptions.includeUpdatedAt,
+                        onCheckedChange = { copyOptions = copyOptions.copy(includeUpdatedAt = it) },
                     )
                     CopyOptionRow(
                         label = stringResource(R.string.copy_option_tags),
@@ -502,60 +520,122 @@ private fun DetailNoteBody(
 ) {
     val removeTag = remember(viewModel) { viewModel::removeTag }
     val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    // El rect de bring-into-view llega en el espacio del contenido (ya desplazado
+    // por el scroll). Guardamos las coordenadas de la zona visible y las del
+    // contenido para compararlos en coordenadas de ventana, que es lo único que
+    // dice de verdad si el cursor está fuera de pantalla.
+    var viewportCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var contentCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // El editor pide traer a la vista el campo entero (alto enorme) al recibir el
+    // foco; solo atendemos peticiones del tamaño del cursor.
+    val maxCursorBringPx = with(density) { 64.dp.toPx() }
+    val scrollMarginPx = with(density) { 12.dp.toPx() }
 
-    Column(
+    Box(
         modifier = modifier
+            .imePadding()
             .padding(16.dp)
-            // Ignora bring-into-view del TextField: con rich text multi-párrafo el
-            // mapeo de offsets empuja el scroll al final del documento al hacer clic.
-            .ignoreChildBringIntoView()
-            .verticalScroll(scrollState),
+            // Fuera del scroll: es exactamente el hueco visible del editor.
+            .onPlaced { viewportCoords = it },
     ) {
-        Text(
-            text = noteTimestampLabel(note.createdAtMillis, note.updatedAtMillis),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        DetailContentModeRow(viewModel)
-
-        Spacer(Modifier.height(12.dp))
-
-        if (isEditing) {
-            DraftTitleField(viewModel)
-            Spacer(Modifier.height(8.dp))
-            DraftContentEditor(viewModel = viewModel)
-        } else {
-            ReadOnlyNoteBody(viewModel)
-        }
-
-        if (tags.isNotEmpty()) {
-            Spacer(Modifier.height(20.dp))
-            NoteTagsRow(
-                tags = tags,
-                isEditing = isEditing,
-                onRemoveTag = removeTag,
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                // Dentro del scroll y pegados: comparten coordenadas con el
+                // contenido, el mismo espacio en que llega el rect del cursor.
+                .onPlaced { contentCoords = it }
+                .cursorFollowBringIntoView(
+                    scrollState = scrollState,
+                    viewport = { viewportCoords },
+                    content = { contentCoords },
+                    maxRequestHeightPx = maxCursorBringPx,
+                    marginPx = scrollMarginPx,
+                ),
+        ) {
+            Text(
+                text = noteTimestampLabel(note.createdAtMillis, note.updatedAtMillis),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
+
+            Spacer(Modifier.height(12.dp))
+
+            DetailContentModeRow(viewModel)
+
+            Spacer(Modifier.height(12.dp))
+
+            if (isEditing) {
+                DraftTitleField(viewModel)
+                Spacer(Modifier.height(8.dp))
+                DraftContentEditor(viewModel = viewModel)
+                // Hueco extra para poder subir la última línea por encima del teclado.
+                Spacer(Modifier.height(48.dp))
+            } else {
+                ReadOnlyNoteBody(viewModel)
+            }
+
+            if (tags.isNotEmpty()) {
+                Spacer(Modifier.height(20.dp))
+                NoteTagsRow(
+                    tags = tags,
+                    isEditing = isEditing,
+                    onRemoveTag = removeTag,
+                )
+            }
         }
     }
 }
 
 /**
- * Evita que hijos (p. ej. BasicTextField) pidan scroll al padre al enfocar/clic.
- * Sin esto, el editor rich-text suele llevar el viewport al final del texto.
+ * Sigue al cursor y nada más: atiende solo peticiones del tamaño del cursor y
+ * desplaza lo mínimo para descubrirlo. Las del campo entero se ignoran, que son
+ * las que mandaban la vista al final —o al principio— del texto al tocarlo.
  */
 @OptIn(ExperimentalFoundationApi::class)
-private fun Modifier.ignoreChildBringIntoView(): Modifier =
-    bringIntoViewResponder(
+private fun Modifier.cursorFollowBringIntoView(
+    scrollState: ScrollState,
+    viewport: () -> LayoutCoordinates?,
+    content: () -> LayoutCoordinates?,
+    maxRequestHeightPx: Float,
+    marginPx: Float,
+): Modifier {
+    fun visibleBounds(): Rect? = viewport()?.takeIf { it.isAttached }?.boundsInWindow()
+    fun attachedContent(): LayoutCoordinates? = content()?.takeIf { it.isAttached }
+
+    return bringIntoViewResponder(
         object : BringIntoViewResponder {
-            override fun calculateRectForParent(localRect: Rect): Rect = localRect
+            /**
+             * El padre de este responder es el propio `verticalScroll`: si le
+             * pasáramos el rect tal cual volvería a desplazarse por su cuenta. Le
+             * decimos que lo pedido ya está en el centro del hueco visible para que
+             * no mueva nada; de lo que haga falta ya se encarga [bringChildIntoView].
+             */
+            override fun calculateRectForParent(localRect: Rect): Rect {
+                val visible = visibleBounds() ?: return localRect
+                val contentCoords = attachedContent() ?: return localRect
+                return Rect(contentCoords.windowToLocal(visible.center), 0f)
+            }
+
             override suspend fun bringChildIntoView(localRect: () -> Rect?) {
-                // no-op
+                val rect = localRect() ?: return
+                if (rect.height > maxRequestHeightPx) return
+                val visible = visibleBounds()?.takeIf { it.height > 0f } ?: return
+                val contentCoords = attachedContent() ?: return
+
+                val top = contentCoords.localToWindow(rect.topLeft).y
+                val bottom = contentCoords.localToWindow(rect.bottomLeft).y
+                val delta = when {
+                    bottom > visible.bottom - marginPx -> bottom - visible.bottom + marginPx
+                    top < visible.top + marginPx -> top - visible.top - marginPx
+                    else -> return
+                }
+                scrollState.scrollBy(delta.coerceIn(-visible.height, visible.height))
             }
         },
     )
+}
 
 @Composable
 private fun DetailContentModeRow(viewModel: DetailViewModel) {
@@ -597,9 +677,22 @@ private fun DraftContentEditor(viewModel: DetailViewModel) {
 
 @Composable
 private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
+    // userEdited se activa también al recibir el foco: desde ese momento la
+    // selección es del usuario y ninguna recarga vuelve a llevarla al inicio.
     var userEdited by remember { mutableStateOf(false) }
     var localField by remember {
         mutableStateOf(TextFieldValue(viewModel.draftContent.value, TextRange.Zero))
+    }
+    val focusRequester = remember { FocusRequester() }
+
+    // Al abrir la edición el cursor se coloca en el primer carácter del cuerpo.
+    LaunchedEffect(Unit) {
+        if (localField.text.isBlank()) return@LaunchedEffect
+        // En la primera composición el nodo puede no estar colocado todavía.
+        if (runCatching { focusRequester.requestFocus() }.isFailure) {
+            withFrameNanos { }
+            runCatching { focusRequester.requestFocus() }
+        }
     }
 
     LaunchedEffect(viewModel) {
@@ -617,7 +710,13 @@ private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
         }
     }
 
-    OutlinedTextField(
+    Text(
+        text = stringResource(R.string.field_body),
+        style = MaterialTheme.typography.labelMedium,
+        color = NegroTexto.copy(alpha = 0.75f),
+    )
+    Spacer(Modifier.height(4.dp))
+    BasicTextField(
         value = localField,
         onValueChange = { updated ->
             userEdited = true
@@ -626,13 +725,11 @@ private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
         },
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 160.dp),
-        label = { Text(stringResource(R.string.field_body)) },
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Celeste,
-            unfocusedBorderColor = Celeste,
-            cursorColor = NegroTexto,
-        ),
+            .heightIn(min = 160.dp)
+            .focusRequester(focusRequester)
+            .onFocusChanged { if (it.isFocused) userEdited = true },
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = NegroTexto),
+        cursorBrush = SolidColor(NegroTexto),
     )
 }
 

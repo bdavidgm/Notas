@@ -139,11 +139,12 @@ private fun exportBaseName(title: String): String =
 data class NoteCopyOptions(
     val includeTitle: Boolean = true,
     val includeBody: Boolean = true,
-    val includeSignature: Boolean = true,
+    val includeCreatedAt: Boolean = true,
+    val includeUpdatedAt: Boolean = true,
     val includeTags: Boolean = true,
 ) {
     val hasAny: Boolean
-        get() = includeTitle || includeBody || includeSignature || includeTags
+        get() = includeTitle || includeBody || includeCreatedAt || includeUpdatedAt || includeTags
 }
 
 fun buildNoteCopyText(
@@ -160,8 +161,11 @@ fun buildNoteCopyText(
     if (options.includeTitle) {
         parts += title.ifBlank { "Sin título" }
     }
-    if (options.includeSignature) {
-        parts += noteTimestampLabel(createdAtMillis, updatedAtMillis)
+    if (options.includeCreatedAt) {
+        parts += "Creada: ${formatNoteInstant(createdAtMillis)}"
+    }
+    if (options.includeUpdatedAt) {
+        parts += "Última edición: ${formatNoteInstant(updatedAtMillis)}"
     }
     if (options.includeBody) {
         parts += content.trimEnd()

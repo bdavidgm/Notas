@@ -47,7 +47,7 @@
     <string name="action_add_tag">Añadir</string>
     <string name="action_select_tag">Añadir a la nota</string>
     <string name="action_apply_tags">Aplicar</string>
-    <string name="action_manage_tags_menu">Gestionar etiquetas</string>
+    <string name="action_manage_tags_menu">Gestionar etiquetas…</string>
     <string name="manage_tags_title">Gestionar etiquetas</string>
     <string name="manage_tags_on_note">En esta nota</string>
     <string name="manage_tags_on_note_empty">Esta nota no tiene etiquetas.</string>
@@ -68,12 +68,13 @@
     <string name="cd_remove_photo">Quitar foto</string>
     <string name="cd_overflow_menu">Más opciones</string>
     <string name="action_export">Exportar</string>
-    <string name="action_export_note">Exportar nota</string>
-    <string name="action_copy_note">Copiar nota</string>
+    <string name="action_export_note">Exportar nota…</string>
+    <string name="action_copy_note">Copiar nota…</string>
     <string name="dialog_copy_note_title">Copiar nota</string>
     <string name="copy_option_title">Título</string>
     <string name="copy_option_body">Texto</string>
-    <string name="copy_option_signature">Firma</string>
+    <string name="copy_option_created">Fecha de creación</string>
+    <string name="copy_option_updated">Fecha de última edición</string>
     <string name="copy_option_tags">Etiquetas</string>
     <string name="action_copy">Copiar</string>
     <string name="snackbar_note_copy_ok">Nota copiada al portapapeles.</string>
