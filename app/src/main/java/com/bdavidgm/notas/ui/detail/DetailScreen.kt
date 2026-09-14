@@ -47,7 +47,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,15 +57,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.isUnspecified
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
@@ -76,7 +69,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.data.local.NoteEntity
@@ -92,12 +84,6 @@ import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.buildNoteCopyText
 import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
-import com.mohamedrejeb.richeditor.annotation.ExperimentalRichTextApi
-import com.mohamedrejeb.richeditor.model.ImageData
-import com.mohamedrejeb.richeditor.model.ImageLoader
-import com.mohamedrejeb.richeditor.model.LocalImageLoader
-import com.mohamedrejeb.richeditor.model.rememberRichTextState
-import com.mohamedrejeb.richeditor.ui.material3.RichText
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
@@ -616,67 +602,7 @@ private fun ReadOnlyNoteBody(viewModel: DetailViewModel) {
             )
         }
         ContentDisplayMode.MD -> {
-            ReadOnlyRichMarkdown(markdown = draftContent)
-        }
-    }
-}
-
-/**
- * El editor trae un [ImageLoader] que no carga nada; sin esto las fotos del
- * cuerpo no se verían en la vista de lectura.
- */
-@OptIn(ExperimentalRichTextApi::class)
-private object CoilRichImageLoader : ImageLoader {
-    @Composable
-    override fun load(model: Any): ImageData {
-        val painter = rememberAsyncImagePainter(model = model)
-        val maxWidthPx = with(LocalDensity.current) {
-            (LocalConfiguration.current.screenWidthDp.dp - 64.dp).toPx()
-        }
-        val bounded = remember(painter, maxWidthPx) { FittedPainter(painter, maxWidthPx) }
-        return ImageData(painter = bounded, contentScale = ContentScale.Fit)
-    }
-}
-
-/**
- * El editor dimensiona la imagen en línea con el tamaño intrínseco del painter,
- * así que una foto de cámara desbordaría el ancho del texto.
- */
-private class FittedPainter(
-    private val delegate: Painter,
-    private val maxWidthPx: Float,
-) : Painter() {
-    override val intrinsicSize: Size
-        get() {
-            val size = delegate.intrinsicSize
-            if (size.isUnspecified || size.width <= 0f || size.width <= maxWidthPx) return size
-            return Size(maxWidthPx, size.height * (maxWidthPx / size.width))
-        }
-
-    override fun DrawScope.onDraw() {
-        with(delegate) { draw(size) }
-    }
-}
-
-@Composable
-private fun ReadOnlyRichMarkdown(markdown: String) {
-    val richTextState = rememberRichTextState()
-    LaunchedEffect(markdown) {
-        richTextState.setMarkdown(markdown)
-    }
-    if (markdown.isBlank()) {
-        Text(
-            text = stringResource(R.string.empty_body_hint),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-        )
-    } else {
-        CompositionLocalProvider(LocalImageLoader provides CoilRichImageLoader) {
-            RichText(
-                state = richTextState,
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyLarge,
-            )
+            ReadOnlyRichMarkdownBody(markdown = draftContent)
         }
     }
 }

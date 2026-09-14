@@ -57,6 +57,7 @@ import com.bdavidgm.notas.ui.theme.Celeste
 import com.bdavidgm.notas.ui.theme.NegroTexto
 import com.mohamedrejeb.richeditor.model.RichTextState
 import com.mohamedrejeb.richeditor.ui.BasicRichTextEditor
+import com.mohamedrejeb.richeditor.ui.material3.RichText
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.debounce
@@ -101,6 +102,26 @@ private val IMAGE_MARKDOWN = Regex("""!\[([^\]]*)]\(([^)\n]+)\)""")
  */
 private const val SPLIT_MARK = "@@NOTAS_SPLIT@@"
 
+/**
+ * Parte el Markdown en bloques. Cada foto queda entre dos bloques de texto (aunque
+ * estén vacíos), así que siempre hay sitio donde escribir antes y después.
+ */
+private fun parseBodyBlocks(markdown: String, newId: () -> Long): List<BodyBlock> {
+    val blocks = mutableListOf<BodyBlock>()
+    var cursor = 0
+    IMAGE_MARKDOWN.findAll(markdown).forEach { match ->
+        blocks += BodyBlock.Text(newId(), markdown.substring(cursor, match.range.first).trim())
+        blocks += BodyBlock.Photo(
+            id = newId(),
+            alt = match.groupValues[1],
+            url = match.groupValues[2],
+        )
+        cursor = match.range.last + 1
+    }
+    blocks += BodyBlock.Text(newId(), markdown.substring(cursor).trim())
+    return blocks
+}
+
 /** Acceso al contenido vivo de un bloque de texto (aún sin volcar al borrador). */
 private class BodyTextHandle(
     val snapshot: () -> String,
@@ -118,21 +139,7 @@ private class BodyBlocksState(initialMarkdown: String) {
     }
 
     fun load(markdown: String) {
-        val parsed = mutableListOf<BodyBlock>()
-        var cursor = 0
-        IMAGE_MARKDOWN.findAll(markdown).forEach { match ->
-            parsed += BodyBlock.Text(newId(), markdown.substring(cursor, match.range.first).trim())
-            parsed += BodyBlock.Photo(
-                id = newId(),
-                alt = match.groupValues[1],
-                url = match.groupValues[2],
-            )
-            cursor = match.range.last + 1
-        }
-        // Siempre hay un bloque de texto antes de cada foto y otro al final, así
-        // que se puede escribir en cualquier hueco.
-        parsed += BodyBlock.Text(newId(), markdown.substring(cursor).trim())
-
+        val parsed = parseBodyBlocks(markdown, ::newId)
         blocks.clear()
         blocks.addAll(parsed)
     }
@@ -437,10 +444,56 @@ private fun BodyTextBlock(
     )
 }
 
+/**
+ * Vista de lectura. rc10 sí entiende `![](url)`, pero crea el hueco de la imagen
+ * con tamaño 0×0 y solo lo ajusta en un `LaunchedEffect` que se dispara antes de
+ * que Coil acabe de decodificar, así que la foto nunca se veía. Se pintan los
+ * mismos bloques que en edición: texto con la librería y fotos con Coil.
+ */
+@Composable
+internal fun ReadOnlyRichMarkdownBody(markdown: String) {
+    if (markdown.isBlank()) {
+        Text(
+            text = stringResource(R.string.empty_body_hint),
+            style = MaterialTheme.typography.bodyLarge,
+            color = NegroTexto.copy(alpha = 0.65f),
+        )
+        return
+    }
+
+    val blocks = remember(markdown) {
+        var lastId = 0L
+        parseBodyBlocks(markdown) { ++lastId }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        blocks.forEach { block ->
+            key(block.id) {
+                when (block) {
+                    is BodyBlock.Text ->
+                        if (block.markdown.isNotBlank()) ReadOnlyTextBlock(block.markdown)
+
+                    is BodyBlock.Photo -> BodyPhotoBlock(photo = block, onRemove = null)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadOnlyTextBlock(markdown: String) {
+    val state = remember(markdown) { RichTextState().apply { setMarkdown(markdown) } }
+    RichText(
+        state = state,
+        modifier = Modifier.fillMaxWidth(),
+        style = MaterialTheme.typography.bodyLarge,
+    )
+}
+
 @Composable
 private fun BodyPhotoBlock(
     photo: BodyBlock.Photo,
-    onRemove: () -> Unit,
+    onRemove: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     Box(Modifier.fillMaxWidth()) {
@@ -456,15 +509,17 @@ private fun BodyPhotoBlock(
                 .clip(RoundedCornerShape(8.dp)),
             contentScale = ContentScale.Fit,
         )
-        IconButton(
-            onClick = onRemove,
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = stringResource(R.string.cd_remove_photo),
-                tint = NegroTexto,
-            )
+        if (onRemove != null) {
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.cd_remove_photo),
+                    tint = NegroTexto,
+                )
+            }
         }
     }
 }
