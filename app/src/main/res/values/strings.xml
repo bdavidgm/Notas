@@ -59,6 +59,12 @@
     <string name="cd_delete_tag">Eliminar etiqueta por completo</string>
     <string name="dialog_delete_tag_title">¿Eliminar etiqueta?</string>
     <string name="dialog_delete_tag_message">Se borrará «%1$s» de todas las notas. Esta acción no se puede deshacer.</string>
+    <string name="cd_insert_photo">Insertar foto</string>
+    <string name="dialog_insert_photo_title">Insertar foto</string>
+    <string name="action_photo_gallery">Elegir de la galería</string>
+    <string name="action_photo_camera">Hacer una foto</string>
+    <string name="snackbar_photo_error">No se pudo insertar la foto</string>
+    <string name="snackbar_no_camera">No hay ninguna aplicación de cámara</string>
     <string name="section_photos">Fotos</string>
     <string name="action_add_photos">Añadir fotos</string>
     <string name="cd_remove_photo">Quitar foto</string>

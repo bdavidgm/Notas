@@ -23,10 +23,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 
 sealed interface NoteExportFeedback {
     data object Ok : NoteExportFeedback
     data object Fail : NoteExportFeedback
+}
+
+sealed interface NotePhotoFeedback {
+    data object Error : NotePhotoFeedback
+    data object NoCamera : NotePhotoFeedback
 }
 
 @OptIn(FlowPreview::class)
@@ -49,6 +55,9 @@ class DetailViewModel(
 
     private val _exportFeedback = Channel<NoteExportFeedback>(Channel.BUFFERED)
     val exportFeedback = _exportFeedback.receiveAsFlow()
+
+    private val _photoFeedback = Channel<NotePhotoFeedback>(Channel.BUFFERED)
+    val photoFeedback = _photoFeedback.receiveAsFlow()
 
     val noteWithTags = repository.observeNoteWithTags(noteId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -174,6 +183,26 @@ class DetailViewModel(
 
     suspend fun addPictures(uris: List<android.net.Uri>) {
         repository.copyGalleryImagesToNote(noteId, uris)
+    }
+
+    /** Foto elegida en la galería para incrustar en el cuerpo; devuelve su ruta. */
+    suspend fun importBodyPhoto(uri: Uri): String? =
+        repository.copyImageIntoNoteBody(noteId, uri)
+
+    /** Fichero donde la app de cámara escribirá la captura. */
+    suspend fun newBodyPhotoFile(): File =
+        repository.newNoteBodyImageFile(noteId)
+
+    suspend fun discardBodyPhoto(file: File) {
+        repository.deleteBodyImageFile(file)
+    }
+
+    fun reportPhotoError() {
+        viewModelScope.launch { _photoFeedback.send(NotePhotoFeedback.Error) }
+    }
+
+    fun reportCameraMissing() {
+        viewModelScope.launch { _photoFeedback.send(NotePhotoFeedback.NoCamera) }
     }
 
     fun deleteImage(entity: NoteImageEntity) {

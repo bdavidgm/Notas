@@ -164,6 +164,38 @@ class NotasRepository(
         }
     }
 
+    /**
+     * Copia una imagen de la galería al almacenamiento interno de la nota y
+     * devuelve su ruta absoluta. A diferencia de [copyGalleryImagesToNote] no
+     * registra la foto en la galería de la nota: va incrustada en el cuerpo.
+     */
+    suspend fun copyImageIntoNoteBody(noteId: Long, uri: Uri): String? =
+        withContext(Dispatchers.IO) {
+            val dest = newNoteBodyImageFile(noteId)
+            val copied = appContext.contentResolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+                true
+            } ?: false
+
+            if (copied) {
+                dest.absolutePath
+            } else {
+                dest.delete()
+                null
+            }
+        }
+
+    /** Fichero destino para una captura de cámara, dentro de la carpeta de la nota. */
+    suspend fun newNoteBodyImageFile(noteId: Long): File =
+        withContext(Dispatchers.IO) {
+            val dir = File(appContext.filesDir, "note_images/$noteId").apply { mkdirs() }
+            File(dir, "${UUID.randomUUID()}.jpg")
+        }
+
+    suspend fun deleteBodyImageFile(file: File) {
+        withContext(Dispatchers.IO) { file.delete() }
+    }
+
     suspend fun deleteImage(imageId: Long, storedPath: String) {
         withContext(Dispatchers.IO) {
             File(storedPath).delete()

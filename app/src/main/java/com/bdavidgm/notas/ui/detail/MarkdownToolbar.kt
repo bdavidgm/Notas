@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
@@ -68,9 +69,14 @@ fun ContentModeSelector(
     }
 }
 
+/**
+ * [state] es el bloque de texto con el foco: hasta que el usuario toca uno, los
+ * botones de formato no tienen sobre qué actuar (el de la foto sí).
+ */
 @Composable
 fun RichMarkdownFormatToolbar(
-    state: RichTextState,
+    state: RichTextState?,
+    onInsertPhoto: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showLinkDialog by remember { mutableStateOf(false) }
@@ -92,28 +98,28 @@ fun RichMarkdownFormatToolbar(
                 imageVector = Icons.Filled.FormatBold,
                 contentDescription = stringResource(R.string.cd_format_bold),
                 onClick = {
-                    state.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                    state?.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
                 },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatItalic,
                 contentDescription = stringResource(R.string.cd_format_italic),
                 onClick = {
-                    state.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                    state?.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
                 },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatStrikethrough,
                 contentDescription = stringResource(R.string.cd_format_strikethrough),
                 onClick = {
-                    state.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
+                    state?.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
                 },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatSize,
                 contentDescription = stringResource(R.string.cd_format_heading),
                 onClick = {
-                    state.toggleSpanStyle(
+                    state?.toggleSpanStyle(
                         SpanStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold),
                     )
                 },
@@ -121,27 +127,32 @@ fun RichMarkdownFormatToolbar(
             FormatIconButton(
                 imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
                 contentDescription = stringResource(R.string.cd_format_bullet),
-                onClick = { state.toggleUnorderedList() },
+                onClick = { state?.toggleUnorderedList() },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.FormatListNumbered,
                 contentDescription = stringResource(R.string.cd_format_numbered),
-                onClick = { state.toggleOrderedList() },
+                onClick = { state?.toggleOrderedList() },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.Code,
                 contentDescription = stringResource(R.string.cd_format_code),
-                onClick = { state.toggleCodeSpan() },
+                onClick = { state?.toggleCodeSpan() },
             )
             FormatIconButton(
                 imageVector = Icons.Filled.Link,
                 contentDescription = stringResource(R.string.cd_format_link),
-                onClick = { showLinkDialog = true },
+                onClick = { if (state != null) showLinkDialog = true },
+            )
+            FormatIconButton(
+                imageVector = Icons.Filled.AddAPhoto,
+                contentDescription = stringResource(R.string.cd_insert_photo),
+                onClick = onInsertPhoto,
             )
         }
     }
 
-    if (showLinkDialog) {
+    if (showLinkDialog && state != null) {
         val selected = state.annotatedString.text
             .substring(state.selection.min, state.selection.max)
         LinkInsertDialog(

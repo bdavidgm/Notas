@@ -36,7 +36,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,13 +55,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isUnspecified
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
@@ -71,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.bdavidgm.notas.R
 import com.bdavidgm.notas.data.local.NoteEntity
@@ -86,13 +92,12 @@ import com.bdavidgm.notas.ui.util.NoteExportFormat
 import com.bdavidgm.notas.ui.util.buildNoteCopyText
 import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import com.bdavidgm.notas.ui.util.suggestedNoteExportFileName
+import com.mohamedrejeb.richeditor.annotation.ExperimentalRichTextApi
+import com.mohamedrejeb.richeditor.model.ImageData
+import com.mohamedrejeb.richeditor.model.ImageLoader
+import com.mohamedrejeb.richeditor.model.LocalImageLoader
 import com.mohamedrejeb.richeditor.model.rememberRichTextState
-import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichText
-import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
@@ -115,6 +120,16 @@ fun DetailScreen(
     var showManageTags by remember { mutableStateOf(false) }
     var copyOptions by remember { mutableStateOf(NoteCopyOptions()) }
     var pendingExportFormat by remember { mutableStateOf<NoteExportFormat?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.photoFeedback.collect { feedback ->
+            val message = when (feedback) {
+                NotePhotoFeedback.Error -> context.getString(R.string.snackbar_photo_error)
+                NotePhotoFeedback.NoCamera -> context.getString(R.string.snackbar_no_camera)
+            }
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.exportFeedback.collect { feedback ->
@@ -582,67 +597,6 @@ private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
-@Composable
-private fun RichMarkdownDraftEditor(viewModel: DetailViewModel) {
-    val richTextState = rememberRichTextState()
-    var userEdited by remember { mutableStateOf(false) }
-    var lastPushed by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(viewModel, richTextState) {
-        viewModel.draftContent.collect { remote ->
-            if (userEdited || remote == lastPushed) return@collect
-            richTextState.setMarkdown(remote)
-            richTextState.selection = TextRange.Zero
-            lastPushed = richTextState.toMarkdown()
-        }
-    }
-
-    DisposableEffect(viewModel, richTextState) {
-        viewModel.setBodySnapshotProvider { richTextState.toMarkdown() }
-        onDispose {
-            val markdown = richTextState.toMarkdown()
-            viewModel.updateDraftContent(markdown)
-            viewModel.setBodySnapshotProvider(null)
-        }
-    }
-
-    // Clave de rendimiento: observar una señal barata (el AnnotatedString ya
-    // construido por el editor) y serializar a Markdown UNA vez pasado el
-    // debounce. Observar `toMarkdown()` dentro del snapshotFlow recorría y
-    // serializaba el documento entero en cada pulsación y en cada cambio de
-    // selección, en el hilo principal.
-    LaunchedEffect(viewModel, richTextState) {
-        snapshotFlow { richTextState.annotatedString }
-            .drop(1)
-            .debounce(400)
-            .collect {
-                // Aún no se ha cargado el contenido: no pisar el borrador.
-                if (lastPushed == null) return@collect
-                val markdown = richTextState.toMarkdown()
-                if (markdown == lastPushed) return@collect
-                userEdited = true
-                lastPushed = markdown
-                viewModel.updateDraftContent(markdown)
-            }
-    }
-
-    RichMarkdownFormatToolbar(state = richTextState)
-    Spacer(Modifier.height(8.dp))
-    OutlinedRichTextEditor(
-        state = richTextState,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 160.dp),
-        label = { Text(stringResource(R.string.field_body)) },
-        colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
-            focusedBorderColor = Celeste,
-            unfocusedBorderColor = Celeste,
-            cursorColor = NegroTexto,
-        ),
-    )
-}
-
 @Composable
 private fun ReadOnlyNoteBody(viewModel: DetailViewModel) {
     val draftTitle by viewModel.draftTitle.collectAsStateWithLifecycle()
@@ -667,6 +621,43 @@ private fun ReadOnlyNoteBody(viewModel: DetailViewModel) {
     }
 }
 
+/**
+ * El editor trae un [ImageLoader] que no carga nada; sin esto las fotos del
+ * cuerpo no se verían en la vista de lectura.
+ */
+@OptIn(ExperimentalRichTextApi::class)
+private object CoilRichImageLoader : ImageLoader {
+    @Composable
+    override fun load(model: Any): ImageData {
+        val painter = rememberAsyncImagePainter(model = model)
+        val maxWidthPx = with(LocalDensity.current) {
+            (LocalConfiguration.current.screenWidthDp.dp - 64.dp).toPx()
+        }
+        val bounded = remember(painter, maxWidthPx) { FittedPainter(painter, maxWidthPx) }
+        return ImageData(painter = bounded, contentScale = ContentScale.Fit)
+    }
+}
+
+/**
+ * El editor dimensiona la imagen en línea con el tamaño intrínseco del painter,
+ * así que una foto de cámara desbordaría el ancho del texto.
+ */
+private class FittedPainter(
+    private val delegate: Painter,
+    private val maxWidthPx: Float,
+) : Painter() {
+    override val intrinsicSize: Size
+        get() {
+            val size = delegate.intrinsicSize
+            if (size.isUnspecified || size.width <= 0f || size.width <= maxWidthPx) return size
+            return Size(maxWidthPx, size.height * (maxWidthPx / size.width))
+        }
+
+    override fun DrawScope.onDraw() {
+        with(delegate) { draw(size) }
+    }
+}
+
 @Composable
 private fun ReadOnlyRichMarkdown(markdown: String) {
     val richTextState = rememberRichTextState()
@@ -680,11 +671,13 @@ private fun ReadOnlyRichMarkdown(markdown: String) {
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
         )
     } else {
-        RichText(
-            state = richTextState,
-            modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.bodyLarge,
-        )
+        CompositionLocalProvider(LocalImageLoader provides CoilRichImageLoader) {
+            RichText(
+                state = richTextState,
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
     }
 }
 
