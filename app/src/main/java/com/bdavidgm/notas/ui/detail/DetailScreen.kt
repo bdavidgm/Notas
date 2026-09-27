@@ -68,6 +68,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -740,6 +741,14 @@ private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
         }
     }
 
+    // El campo pinta en local. El borrador del ViewModel se actualiza al dejar
+    // de escribir, para no despertar el autoguardado en cada tecla.
+    LaunchedEffect(localField.text, userEdited) {
+        if (!userEdited) return@LaunchedEffect
+        delay(400)
+        viewModel.updateDraftContent(localField.text)
+    }
+
     DisposableEffect(viewModel) {
         viewModel.setBodySnapshotProvider { localField.text }
         onDispose {
@@ -759,7 +768,6 @@ private fun PlainTextDraftEditor(viewModel: DetailViewModel) {
         onValueChange = { updated ->
             userEdited = true
             localField = updated
-            viewModel.updateDraftContent(updated.text)
         },
         modifier = Modifier
             .fillMaxWidth()
