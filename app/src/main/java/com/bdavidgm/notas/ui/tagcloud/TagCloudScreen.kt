@@ -1,6 +1,7 @@
 package com.bdavidgm.notas.ui.tagcloud
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -125,12 +126,20 @@ private fun TagCloudChip(
             contentColor = NegroTexto,
         ),
     ) {
-        Text(
-            text = tag.name,
-            fontSize = 15.sp,
-            fontWeight = if (tag.selected) FontWeight.Bold else FontWeight.Medium,
-            color = NegroTexto,
-        )
+        Box(
+            modifier = Modifier
+                .weight(weight = 1f, fill = false)
+                .horizontalScroll(rememberScrollState()),
+        ) {
+            Text(
+                text = tag.name,
+                fontSize = 15.sp,
+                fontWeight = if (tag.selected) FontWeight.Bold else FontWeight.Medium,
+                color = NegroTexto,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
         Spacer(Modifier.width(8.dp))
         TagCountBadge(count = tag.noteCount)
     }
