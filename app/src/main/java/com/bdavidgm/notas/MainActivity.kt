@@ -1,10 +1,12 @@
 package com.bdavidgm.notas
 
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
@@ -22,7 +24,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // auto() deja enforceNavigationBarContrast activo: al abrir el teclado el
+        // sistema pinta una franja clara justo encima y tapa el texto de la nota.
+        enableEdgeToEdge(
+            navigationBarStyle = SystemBarStyle.light(
+                Color.TRANSPARENT,
+                Color.TRANSPARENT,
+            ),
+        )
         // Solo en el arranque fresco / Abrir con…; no reimportar tras rotación.
         if (savedInstanceState == null) {
             _pendingOpenDocumentUri.value = extractOpenDocumentUri(intent)

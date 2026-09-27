@@ -16,10 +16,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -73,6 +81,7 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
@@ -513,6 +522,7 @@ fun DetailScreen(
             return@NotasScaffold
         }
 
+        val layoutDirection = LocalLayoutDirection.current
         DetailNoteBody(
             viewModel = viewModel,
             note = note,
@@ -520,7 +530,16 @@ fun DetailScreen(
             isEditing = isEditing,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                // El inferior lo aplica el cuerpo con ime ∪ navigationBars. Si aquí
+                // también se deja la barra, al abrir el teclado queda una franja
+                // vacía encima del teclado.
+                .padding(
+                    PaddingValues(
+                        start = padding.calculateStartPadding(layoutDirection),
+                        top = padding.calculateTopPadding(),
+                        end = padding.calculateEndPadding(layoutDirection),
+                    ),
+                ),
         )
     }
 }
@@ -549,7 +568,11 @@ private fun DetailNoteBody(
 
     Box(
         modifier = modifier
-            .imePadding()
+            // El máximo de teclado y barra de navegación: sumarlos deja un hueco
+            // del alto de la barra justo encima del teclado.
+            .windowInsetsPadding(
+                WindowInsets.ime.union(WindowInsets.navigationBars).only(WindowInsetsSides.Bottom),
+            )
             .padding(16.dp)
             // Fuera del scroll: es exactamente el hueco visible del editor.
             .onPlaced { viewportCoords = it },

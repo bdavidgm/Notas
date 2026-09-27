@@ -1,6 +1,7 @@
 package com.bdavidgm.notas.ui.theme
 
 import android.app.Activity
+import android.graphics.Color as AndroidColor
 import android.os.Build
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -53,6 +54,12 @@ fun NotasTheme(
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = Celeste.toArgb()
+            // Sin esto el sistema dibuja un velo claro en la barra de navegación
+            // y, con el teclado abierto, esa franja queda encima del texto.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+                window.navigationBarColor = AndroidColor.TRANSPARENT
+            }
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = true
         }
     }
