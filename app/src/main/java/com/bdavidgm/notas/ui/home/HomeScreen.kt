@@ -2,6 +2,11 @@ package com.bdavidgm.notas.ui.home
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,8 +19,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -40,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,6 +122,10 @@ fun HomeScreen(
 
     var overflowOpen by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<Pair<Long, String>?>(null) }
+    val notesListState = rememberLazyListState()
+    val hideNewNoteFab by remember {
+        derivedStateOf { notesListState.isScrolledToEnd() }
+    }
 
     val onRequestDelete = remember {
         { noteId: Long, titleForDialog: String ->
@@ -214,12 +226,18 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            CelesteFab(onClick = { viewModel.createNote(onOpenNoteStable) }) {
-                Text(
-                    text = stringResource(R.string.fab_new_note),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = NegroTexto,
-                )
+            AnimatedVisibility(
+                visible = !hideNewNoteFab,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut(),
+            ) {
+                CelesteFab(onClick = { viewModel.createNote(onOpenNoteStable) }) {
+                    Text(
+                        text = stringResource(R.string.fab_new_note),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = NegroTexto,
+                    )
+                }
             }
         },
     ) { padding ->
@@ -232,6 +250,7 @@ fun HomeScreen(
             HomeTagChipsRow(viewModel)
             HomeNotesList(
                 viewModel = viewModel,
+                listState = notesListState,
                 onOpenNote = onOpenNoteStable,
                 onRequestDelete = onRequestDelete,
             )
@@ -303,6 +322,7 @@ private fun HomeTagChip(
 @Composable
 private fun HomeNotesList(
     viewModel: HomeViewModel,
+    listState: LazyListState,
     onOpenNote: (Long) -> Unit,
     onRequestDelete: (noteId: Long, titleForDialog: String) -> Unit,
 ) {
@@ -310,6 +330,7 @@ private fun HomeNotesList(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -400,4 +421,14 @@ private fun NoteListItem(
             }
         }
     }
+}
+
+/** True cuando el último card queda a la vista tras haber desplazado la lista. */
+private fun LazyListState.isScrolledToEnd(): Boolean {
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return false
+    val reachedLastItem = info.totalItemsCount > 0 &&
+        last.index == info.totalItemsCount - 1 &&
+        last.offset + last.size <= info.viewportEndOffset
+    return reachedLastItem && canScrollBackward
 }
