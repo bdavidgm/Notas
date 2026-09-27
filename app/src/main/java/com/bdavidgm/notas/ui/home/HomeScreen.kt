@@ -7,8 +7,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -54,20 +53,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bdavidgm.notas.R
-import com.bdavidgm.notas.data.NoteWithTags
 import com.bdavidgm.notas.ui.components.CelesteFab
 import com.bdavidgm.notas.ui.components.NotasScaffold
 import com.bdavidgm.notas.ui.theme.Celeste
 import com.bdavidgm.notas.ui.theme.CelesteClaro
 import com.bdavidgm.notas.ui.theme.CelesteOscuro
 import com.bdavidgm.notas.ui.theme.NegroTexto
-import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -334,7 +332,11 @@ private fun HomeNotesList(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(notes, key = { it.note.id }) { item ->
+        items(
+            items = notes,
+            key = { it.id },
+            contentType = { "note" },
+        ) { item ->
             NoteListItem(
                 item = item,
                 onOpenNote = onOpenNote,
@@ -346,18 +348,19 @@ private fun HomeNotesList(
 
 @Composable
 private fun NoteListItem(
-    item: NoteWithTags,
+    item: HomeViewModel.NoteCardUi,
     onOpenNote: (Long) -> Unit,
     onRequestDelete: (noteId: Long, titleForDialog: String) -> Unit,
 ) {
-    val titleText = item.note.title.ifBlank { stringResource(R.string.untitled_note) }
-    val time = noteTimestampLabel(item.note.createdAtMillis, item.note.updatedAtMillis)
-    val noteId = item.note.id
-
+    val titleText = item.title.ifBlank { stringResource(R.string.untitled_note) }
+    val noteId = item.id
+    // Sin elevación: la sombra de cada card se redibuja en cada frame del scroll.
+    // El borde separa el card del fondo sin ese coste.
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Celeste.copy(alpha = 0.55f)),
     ) {
         Row(
             modifier = Modifier
@@ -377,33 +380,34 @@ private fun NoteListItem(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (item.tags.isNotEmpty()) {
+                if (item.tagNames.isNotEmpty()) {
+                    // Sin scroll anidado: una fila desplazable dentro de cada card
+                    // pelea el gesto vertical y corta los frames.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 6.dp)
-                            .horizontalScroll(rememberScrollState()),
+                            .clipToBounds(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        item.tags.forEach { tag ->
+                        item.tagNames.forEach { name ->
                             Surface(
                                 color = Celeste,
                                 shape = RoundedCornerShape(16.dp),
                             ) {
                                 Text(
-                                    text = tag.name,
+                                    text = name,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = NegroTexto,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
                     }
                 }
                 Text(
-                    text = time,
+                    text = item.timeLabel,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                     modifier = Modifier.padding(top = 4.dp),

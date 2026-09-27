@@ -25,7 +25,7 @@ class TagCloudViewModel(
     private val _selectedTagIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedTagIds: StateFlow<Set<Long>> = _selectedTagIds.asStateFlow()
 
-    private val allNotes = repository.observeNotesMatchingSearch("%")
+    private val allNotes = repository.observeNoteSummaries("%")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val tags = combine(allNotes, _selectedTagIds) { notes, selected ->
@@ -33,7 +33,7 @@ class TagCloudViewModel(
         for (n in notes) {
             for (t in n.tags) {
                 val entry = perTag.getOrPut(t.id) { t.name to mutableSetOf() }
-                entry.second.add(n.note.id)
+                entry.second.add(n.id)
             }
         }
         perTag.map { (id, pair) ->

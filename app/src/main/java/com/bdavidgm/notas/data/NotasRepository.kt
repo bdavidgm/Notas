@@ -40,8 +40,8 @@ class NotasRepository(
     private val appContext: Context,
 ) {
 
-    fun observeNotesMatchingSearch(searchPattern: String): Flow<List<NoteWithTags>> =
-        dao.observeNoteTagJoinRowsBySearch(searchPattern).map { it.toNoteWithTagsList() }
+    fun observeNoteSummaries(searchPattern: String): Flow<List<NoteSummary>> =
+        dao.observeNoteSummaryRowsBySearch(searchPattern).map { it.toNoteSummaryList() }
 
     fun observeNoteWithTags(noteId: Long): Flow<NoteWithTags?> =
         dao.observeNoteTagJoinRowsForNote(noteId).map { it.toSingleNoteWithTags() }

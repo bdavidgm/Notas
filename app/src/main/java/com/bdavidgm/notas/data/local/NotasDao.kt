@@ -12,7 +12,7 @@ interface NotasDao {
 
     @Query(
         """
-        SELECT n.id AS noteId, n.uid AS uid, n.title AS title, n.content AS content,
+        SELECT n.id AS noteId, n.title AS title,
                n.createdAtMillis AS createdAtMillis, n.updatedAtMillis AS updatedAtMillis,
                IFNULL(t.id, -1) AS tagId, IFNULL(t.name, '') AS tagName
         FROM notes n
@@ -22,7 +22,7 @@ interface NotasDao {
         ORDER BY n.updatedAtMillis DESC, t.name COLLATE NOCASE ASC
         """,
     )
-    fun observeNoteTagJoinRowsBySearch(searchPattern: String): Flow<List<NoteTagJoinRow>>
+    fun observeNoteSummaryRowsBySearch(searchPattern: String): Flow<List<NoteSummaryJoinRow>>
 
     @Query(
         """

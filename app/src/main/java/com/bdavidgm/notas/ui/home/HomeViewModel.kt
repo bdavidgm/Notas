@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bdavidgm.notas.data.NotasRepository
+import com.bdavidgm.notas.data.NoteSummary
+import com.bdavidgm.notas.ui.util.noteTimestampLabel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -46,13 +48,24 @@ class HomeViewModel(
         .debounce { query -> if (query.isEmpty()) 0L else 300L }
         .map { NotasRepository.likePattern(it) }
         .distinctUntilChanged()
-        .flatMapLatest { repository.observeNotesMatchingSearch(it) }
+        .flatMapLatest { repository.observeNoteSummaries(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val displayedNotes = combine(notesMatchingSearch, _selectedTagIds) { notes, selected ->
-        if (selected.isEmpty()) notes
-        else notes.filter { n -> selected.all { tid -> n.tags.any { it.id == tid } } }
+        val filtered = if (selected.isEmpty()) {
+            notes
+        } else {
+            notes.filter { n -> selected.all { tid -> n.tags.any { it.id == tid } } }
+        }
+        filtered.map { it.toCardUi() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    data class NoteCardUi(
+        val id: Long,
+        val title: String,
+        val timeLabel: String,
+        val tagNames: List<String>,
+    )
 
     data class TagChipUi(
         val tagId: Long,
@@ -66,7 +79,7 @@ class HomeViewModel(
         for (n in notes) {
             for (t in n.tags) {
                 val entry = perTag.getOrPut(t.id) { t.name to mutableSetOf() }
-                entry.second.add(n.note.id)
+                entry.second.add(n.id)
             }
         }
         perTag.map { (id, pair) ->
@@ -150,3 +163,11 @@ class HomeViewModel(
         }
     }
 }
+
+private fun NoteSummary.toCardUi(): HomeViewModel.NoteCardUi =
+    HomeViewModel.NoteCardUi(
+        id = id,
+        title = title,
+        timeLabel = noteTimestampLabel(createdAtMillis, updatedAtMillis),
+        tagNames = tags.map { it.name },
+    )
